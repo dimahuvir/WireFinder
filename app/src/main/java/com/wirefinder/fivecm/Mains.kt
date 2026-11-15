@@ -7,7 +7,7 @@ import kotlin.math.sqrt
 class Mains {
 
     var mainsHz = 50f
-    var amp = 0f
+    var raw = 0f
     var noise = 0f
     var ratio = 0f
     var effHz = 0f
@@ -105,7 +105,7 @@ class Mains {
             return true
         }
 
-        val want = (fs * 1.2f).toInt().coerceIn(64, cap)
+        val want = (fs * 0.8f).toInt().coerceIn(64, cap)
         val n = if (count < want) count else want
 
         prepare(n)
@@ -124,13 +124,11 @@ class Mains {
 
         val nz = if (k > 0) sum / k else 0.00000001f
 
-        val rawAmp = sqrt(sig)
+        raw = sqrt(sig)
         noise = sqrt(nz)
-        val net = sig - nz
-        amp = if (net > 0f) sqrt(net) else 0f
 
         val den = if (noise < 0.00001f) 0.00001f else noise
-        ratio = rawAmp / den
+        ratio = raw / den
 
         return true
     }
