@@ -2,39 +2,45 @@ package com.wirefinder.fivecm
 
 import android.content.Context
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 
 class Ui(private val ctx: Context) {
 
-    lateinit var depthText: TextView
-    lateinit var depthHint: TextView
-    lateinit var stateText: TextView
-    lateinit var axisText: TextView
-    lateinit var liveText: TextView
+    lateinit var cardTitle: TextView
+    lateinit var cardSub: TextView
+    lateinit var wireLabel: TextView
+    lateinit var metalLabel: TextView
+    lateinit var hintText: TextView
+    lateinit var infoText: TextView
     lateinit var sensorInfoText: TextView
-    lateinit var levelBar: ProgressBar
-    lateinit var scanView: ScanView
+    lateinit var wireBar: LedBar
+    lateinit var metalBar: LedBar
 
-    lateinit var startButton: Button
-    lateinit var clearButton: Button
-    lateinit var widthButton: Button
-    lateinit var rowButton: Button
-    lateinit var calibrateButton: Button
-    lateinit var modeButton: Button
+    lateinit var zeroButton: Button
+    lateinit var sensButton: Button
     lateinit var soundButton: Button
     lateinit var testButton: Button
+
+    private lateinit var cardBg: GradientDrawable
+
+    fun setCard(title: String, sub: String, color: Int) {
+        cardTitle.text = title
+        cardSub.text = sub
+        cardBg.setColor(color)
+    }
 
     fun build(): View {
 
         val root = LinearLayout(ctx)
         root.orientation = LinearLayout.VERTICAL
-        root.setPadding(dp(18), dp(18), dp(18), dp(18))
+        root.setPadding(dp(16), dp(16), dp(16), dp(16))
         root.setBackgroundColor(0xFFF3F6FA.toInt())
 
         val scroll = ScrollView(ctx)
@@ -42,7 +48,7 @@ class Ui(private val ctx: Context) {
         val content = LinearLayout(ctx)
         content.orientation = LinearLayout.VERTICAL
 
-        addScanner(content)
+        addMain(content)
         addButtons(content)
         addInfo(content)
 
@@ -52,67 +58,73 @@ class Ui(private val ctx: Context) {
         return root
     }
 
-    private fun addScanner(content: LinearLayout) {
+    private fun addMain(content: LinearLayout) {
 
-        content.addView(label("WIREFINDER 5CM", 24, true, 0xFF14263D.toInt()))
+        content.addView(label("WIREFINDER 5CM", 18, true, 0xFF14263D.toInt()))
 
-        content.addView(label("Глубина провода (оценка)", 14, true, 0xFF536477.toInt()))
-
-        depthText = label("—", 34, true, 0xFF147D64.toInt())
-        content.addView(depthText)
-
-        stateText = label("Ожидание датчика...", 15, true, 0xFF14263D.toInt())
-        content.addView(stateText)
-
-        content.addView(gap(6))
-
-        scanView = ScanView(ctx)
-        scanView.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(260)
+        val card = LinearLayout(ctx)
+        card.orientation = LinearLayout.VERTICAL
+        card.setPadding(dp(16), dp(22), dp(16), dp(22))
+        card.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT
         )
-        content.addView(scanView)
 
-        axisText = label("", 12, false, 0xFF536477.toInt())
-        content.addView(axisText)
+        cardBg = GradientDrawable()
+        cardBg.cornerRadius = dp(18).toFloat()
+        cardBg.setColor(0xFF64748B.toInt())
+        card.background = cardBg
 
-        levelBar = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal)
-        levelBar.max = 100
-        levelBar.progress = 0
-        levelBar.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(14)
+        cardTitle = label("ПОДГОТОВКА", 28, true, 0xFFFFFFFF.toInt())
+        cardTitle.gravity = Gravity.CENTER
+        card.addView(cardTitle)
+
+        cardSub = label("", 14, false, 0xFFFFFFFF.toInt())
+        cardSub.gravity = Gravity.CENTER
+        card.addView(cardSub)
+
+        content.addView(card)
+        content.addView(gap(12))
+
+        wireLabel = label("ПРОВОД 50 Гц", 14, true, 0xFF14263D.toInt())
+        content.addView(wireLabel)
+
+        wireBar = LedBar(ctx)
+        wireBar.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(34)
         )
-        content.addView(levelBar)
+        content.addView(wireBar)
 
-        liveText = label("", 13, true, 0xFF14263D.toInt())
-        content.addView(liveText)
+        content.addView(gap(8))
 
-        depthHint = label("", 13, false, 0xFF536477.toInt())
-        content.addView(depthHint)
+        metalLabel = label("МЕТАЛЛ", 14, true, 0xFF14263D.toInt())
+        content.addView(metalLabel)
+
+        metalBar = LedBar(ctx)
+        metalBar.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(34)
+        )
+        content.addView(metalBar)
+
+        content.addView(gap(10))
+
+        hintText = label("", 18, true, 0xFF14263D.toInt())
+        hintText.gravity = Gravity.CENTER
+        content.addView(hintText)
+
+        infoText = label("", 12, false, 0xFF536477.toInt())
+        content.addView(infoText)
 
         content.addView(gap(8))
     }
 
     private fun addButtons(content: LinearLayout) {
 
-        startButton = button("Начать проход")
-        content.addView(startButton)
+        zeroButton = button("Обнулить (на чистом месте)")
+        content.addView(zeroButton)
 
-        clearButton = button("Очистить карту")
-        content.addView(clearButton)
-
-        widthButton = button("Ширина прохода: 50 см")
-        content.addView(widthButton)
-
-        rowButton = button("Шаг между проходами: 10 см")
-        content.addView(rowButton)
-
-        content.addView(gap(8))
-
-        calibrateButton = button("Перекалибровать (держи неподвижно)")
-        content.addView(calibrateButton)
-
-        modeButton = button("Режим: ПРОВОД ПОД НАГРУЗКОЙ (50 Гц)")
-        content.addView(modeButton)
+        sensButton = button("Чувствительность: обычная")
+        content.addView(sensButton)
 
         soundButton = button("Звук: включён")
         content.addView(soundButton)
@@ -125,17 +137,16 @@ class Ui(private val ctx: Context) {
 
     private fun addInfo(content: LinearLayout) {
 
-        content.addView(label("Как сканировать", 17, true, 0xFF14263D.toInt()))
+        content.addView(label("Как пользоваться", 17, true, 0xFF14263D.toInt()))
 
         content.addView(
             label(
-                "1. Включи на линии мощную нагрузку: чайник, обогреватель, фен.\n" +
-                "2. Подожди калибровку, держа телефон неподвижно вдали от металла.\n" +
-                "3. Нажми «Начать проход», прижми телефон к стене в начале отрезка.\n" +
-                "4. После 3 писков веди телефон ровно, не вращая, на всю ширину отрезка за 6 секунд.\n" +
-                "5. Следующий проход делай выше на выбранный шаг. Лучше 3–6 проходов.\n" +
-                "6. Яркая линия на карте показывает, где сигнал сильнее. Белый круг: максимум.\n" +
-                "7. Если звука нет, увеличь громкость мультимедиа и нажми «Тест звука».",
+                "1. Для поиска провода включи на этой линии мощную нагрузку: чайник, обогреватель, фен.\n" +
+                "2. Дай прибору 2 секунды подготовки, держа телефон неподвижно вдали от металла.\n" +
+                "3. Прижми телефон к стене и веди медленно, не вращая. Датчик обычно в верхней части телефона.\n" +
+                "4. Следи за плашкой и шкалами. Когда сигнал растёт, ты приближаешься, а когда выше всего, ты над источником.\n" +
+                "5. Писк раздаётся раз в секунду: динамик мешает измерению, поэтому чаще нельзя.\n" +
+                "6. Если провод не ловится, выбери «Чувствительность: максимальная» и держи телефон вплотную.",
                 13, false, 0xFF536477.toInt()
             )
         )
@@ -152,7 +163,7 @@ class Ui(private val ctx: Context) {
 
         content.addView(
             label(
-                "Это экспериментальный магнитометр, а не детектор скрытой проводки. Карта показывает силу магнитного сигнала, а не сам провод. Глубина оценивается грубо, погрешность 50% и больше. В двухжильном кабеле токи идут навстречу друг другу, и поле почти гасится, поэтому провод может быть не виден. Арматура, трубы, магниты и динамики дают похожие сигналы. Не сверли стену по показаниям приложения. Для проверки используй профессиональный детектор.",
+                "Это экспериментальный магнитометр, а не детектор скрытой проводки. Расстояние до провода он не измеряет, только показывает, ближе ты или дальше. В двухжильном кабеле токи идут навстречу друг другу, и поле почти гасится, поэтому провод может быть не виден. Арматура, трубы, магниты и динамики дают похожие сигналы. Не вскрывай провода и не сверли стену по показаниям приложения. Для проверки используй профессиональный детектор.",
                 13, false, 0xFF8A3B24.toInt()
             )
         )
@@ -180,7 +191,7 @@ class Ui(private val ctx: Context) {
             tv.setTypeface(tv.typeface, Typeface.BOLD)
         }
 
-        tv.setPadding(0, dp(5), 0, dp(5))
+        tv.setPadding(0, dp(4), 0, dp(4))
         return tv
     }
 
