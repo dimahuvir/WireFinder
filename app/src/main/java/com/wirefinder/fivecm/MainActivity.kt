@@ -34,7 +34,7 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var historyText: TextView
     private lateinit var calibrateButton: Button
 
-    private var baseline: Float? = null
+    private var baseValue: Float? = null
     private var latestMagnitude = 0f
     private var lastAlertTime = 0L
     private var hasReading = false
@@ -120,47 +120,41 @@ class MainActivity : Activity(), SensorEventListener {
         content.addView(statusText)
         content.addView(gap(14))
 
-        calibrateButton = Button(this).apply {
-            text = "Калибровка в текущем месте"
-            isAllCaps = false
-
-            setOnClickListener {
-                if (!hasReading) {
-                    statusText.text = "Данных от датчика ещё нет. Подожди секунду."
-                } else {
-                    baseline = latestMagnitude
-                    statusText.text =
-                        "База сохранена. Медленно перемещай телефон вдоль стены."
-                    updateDisplay(latestMagnitude)
-                }
+        calibrateButton = Button(this)
+        calibrateButton.text = "Калибровка в текущем месте"
+        calibrateButton.isAllCaps = false
+        calibrateButton.setOnClickListener {
+            if (!hasReading) {
+                statusText.text = "Данных от датчика ещё нет. Подожди секунду."
+            } else {
+                baseValue = latestMagnitude
+                statusText.text =
+                    "База сохранена. Медленно перемещай телефон вдоль стены."
+                updateDisplay(latestMagnitude)
             }
         }
         content.addView(calibrateButton)
 
-        val resetButton = Button(this).apply {
-            text = "Сбросить калибровку"
-            isAllCaps = false
-
-            setOnClickListener {
-                baseline = null
-                deltaText.text = "Отклонение: нет калибровки"
-                statusText.text =
-                    "Калибровка сброшена. Нажми «Калибровка» вдали от металла."
-            }
+        val resetButton = Button(this)
+        resetButton.text = "Сбросить калибровку"
+        resetButton.isAllCaps = false
+        resetButton.setOnClickListener {
+            baseValue = null
+            deltaText.text = "Отклонение: нет калибровки"
+            statusText.text =
+                "Калибровка сброшена. Нажми «Калибровка» вдали от металла."
         }
         content.addView(resetButton)
 
-        val vibrationButton = Button(this).apply {
-            text = "Вибрация: включена"
-            isAllCaps = false
-
-            setOnClickListener {
-                alertEnabled = !alertEnabled
-                text = if (alertEnabled) {
-                    "Вибрация: включена"
-                } else {
-                    "Вибрация: выключена"
-                }
+        val vibrationButton = Button(this)
+        vibrationButton.text = "Вибрация: включена"
+        vibrationButton.isAllCaps = false
+        vibrationButton.setOnClickListener {
+            alertEnabled = !alertEnabled
+            vibrationButton.text = if (alertEnabled) {
+                "Вибрация: включена"
+            } else {
+                "Вибрация: выключена"
             }
         }
         content.addView(vibrationButton)
@@ -243,7 +237,7 @@ class MainActivity : Activity(), SensorEventListener {
         magnitudeText.text =
             String.format(Locale.US, "%.1f µT", value)
 
-        val base = baseline
+        val base = baseValue
 
         if (base != null) {
 
@@ -327,23 +321,25 @@ class MainActivity : Activity(), SensorEventListener {
         size: Int,
         bold: Boolean,
         color: Int
-    ) = TextView(this).apply {
-
-        text = value
-        textSize = size.toFloat()
-        setTextColor(color)
+    ): TextView {
+        val tv = TextView(this)
+        tv.text = value
+        tv.textSize = size.toFloat()
+        tv.setTextColor(color)
 
         if (bold) {
-            setTypeface(typeface, Typeface.BOLD)
+            tv.setTypeface(tv.typeface, Typeface.BOLD)
         }
 
-        setPadding(0, dp(5), 0, dp(5))
+        tv.setPadding(0, dp(5), 0, dp(5))
+        return tv
     }
 
-    private fun gap(height: Int) =
-        View(this).apply {
-            layoutParams = LinearLayout.LayoutParams(1, dp(height))
-        }
+    private fun gap(height: Int): View {
+        val v = View(this)
+        v.layoutParams = LinearLayout.LayoutParams(1, dp(height))
+        return v
+    }
 
     private fun dp(value: Int) =
         (value * resources.displayMetrics.density).toInt()
