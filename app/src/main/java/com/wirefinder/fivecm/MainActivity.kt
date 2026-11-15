@@ -19,16 +19,19 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var ui: Ui
 
     private val engine = Engine()
-    private val map = ScanMap()
     private val beeper = Beeper()
+
+    private val sensNames = arrayOf("обычная", "высокая", "максимальная")
 
     private var soundEnabled = true
     private var infoBase = ""
-    private var message = ""
-    private var messageUntilMs = 0L
-
     private var lastUiMs = 0L
     private var lastBeepMs = 0L
+
+    private val colorGrey = 0xFF64748B.toInt()
+    private val colorGreen = 0xFF2E8B57.toInt()
+    private val colorOrange = 0xFFE07B00.toInt()
+    private val colorRed = 0xFFC62828.toInt()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,21 +46,16 @@ class MainActivity : Activity(), SensorEventListener {
 
         ui = Ui(this)
         setContentView(ui.build())
-        ui.scanView.map = map
-
         setupButtons()
 
         val sensor = magneticSensor
 
-        if (sensor == null) {
-            infoBase =
-                "Магнитометр не найден. Телефон не может выполнять магнитные измерения."
-            ui.startButton.isEnabled = false
+        infoBase = if (sensor == null) {
+            "Магнитометр не найден. Телефон не может выполнять магнитные измерения."
         } else {
-            infoBase =
-                "Датчик: ${sensor.name}\n" +
-                "Производитель: ${sensor.vendor}\n" +
-                "Разрешение: ${sensor.resolution} µT"
+            "Датчик: ${sensor.name}\n" +
+            "Производитель: ${sensor.vendor}\n" +
+            "Разрешение: ${sensor.resolution} µT"
         }
 
         val nfcAvailable = NfcAdapter.getDefaultAdapter(this) != null
@@ -66,69 +64,15 @@ class MainActivity : Activity(), SensorEventListener {
         ui.sensorInfoText.text = infoBase
     }
 
-    private fun showMessage(text: String) {
-        message = text
-        messageUntilMs = SystemClock.elapsedRealtime() + 3000
-    }
-
-    private fun resetResult() {
-        ui.depthText.text = "—"
-        ui.depthHint.text = ""
-    }
-
     private fun setupButtons() {
 
-        ui.startButton.setOnClickListener {
-            val now = SystemClock.elapsedRealtime()
-            if (engine.calibrating) {
-                showMessage("Подожди, идёт калибровка.")
-            } else if (!map.startPass(now)) {
-                if (map.state != 0) {
-                    showMessage("Проход уже идёт.")
-                } else {
-                    showMessage("Карта заполнена. Нажми «Очистить карту».")
-                }
-            }
+        ui.zeroButton.setOnClickListener {
+            engine.zero(SystemClock.elapsedRealtime())
         }
 
-        ui.clearButton.setOnClickListener {
-            map.clear()
-            resetResult()
-        }
-
-        ui.widthButton.setOnClickListener {
-            map.widthCm = when (map.widthCm) {
-                30 -> 50
-                50 -> 80
-                else -> 30
-            }
-            ui.widthButton.text = "Ширина прохода: ${map.widthCm} см"
-        }
-
-        ui.rowButton.setOnClickListener {
-            map.rowCm = when (map.rowCm) {
-                5 -> 10
-                10 -> 15
-                else -> 5
-            }
-            ui.rowButton.text = "Шаг между проходами: ${map.rowCm} см"
-        }
-
-        ui.calibrateButton.setOnClickListener {
-            engine.notice = ""
-            engine.startCalibration(SystemClock.elapsedRealtime())
-        }
-
-        ui.modeButton.setOnClickListener {
-            engine.acMode = !engine.acMode
-            engine.resetGain()
-            map.clear()
-            resetResult()
-            ui.modeButton.text = if (engine.acMode) {
-                "Режим: ПРОВОД ПОД НАГРУЗКОЙ (50 Гц)"
-            } else {
-                "Режим: МЕТАЛЛ (постоянное поле)"
-            }
+        ui.sensButton.setOnClickListener {
+            engine.sens = (engine.sens + 1) % 3
+            ui.sensButton.text = "Чувствительность: " + sensNames[engine.sens]
         }
 
         ui.soundButton.setOnClickListener {
@@ -141,6 +85,7 @@ class MainActivity : Activity(), SensorEventListener {
         }
 
         ui.testButton.setOnClickListener {
+            engine.muteUntilMs = SystemClock.elapsedRealtime() + 700
             beeper.beep(880, 400)
         }
     }
@@ -172,8 +117,9 @@ class MainActivity : Activity(), SensorEventListener {
         }
 
         val nowMs = SystemClock.elapsedRealtime()
+        val e = engine
 
-        engine.onSample(
+        e.onSample(
             event.values[0],
             event.values[1],
             event.values[2],
@@ -181,116 +127,114 @@ class MainActivity : Activity(), SensorEventListener {
             nowMs
         )
 
-        val ev = map.update(nowMs, engine.signal())
-        handleEvent(ev, nowMs)
-
-        if (map.state == 0 && !engine.calibrating && engine.level > 0.05f) {
-            liveBeep(nowMs, engine.level)
-        }
+        liveBeep(nowMs)
 
         if (nowMs - lastUiMs >= 100) {
             lastUiMs = nowMs
-            refreshUi(nowMs)
+            e.tick(nowMs)
+            refreshUi()
         }
     }
 
-    private fun handleEvent(ev: Int, nowMs: Long) {
+    private fun liveBeep(nowMs: Long) {
 
-        if (ev == ScanMap.EV_NONE) {
+        val e = engine
+
+        if (!soundEnabled || e.calibrating) {
             return
         }
 
-        if (ev == ScanMap.EV_END) {
-            val r = map.analyze(engine.acFloor, engine.acMode)
-            ui.depthText.text = r.first
-            ui.depthHint.text = r.second
-        }
+        val wire = e.wireLevel
+        val metal = e.metalLevel
+        val lvl = if (wire > metal) wire else metal
 
-        if (!soundEnabled) {
-            return
-        }
-
-        engine.muteAcUntilMs = nowMs + 150
-
-        when (ev) {
-            ScanMap.EV_TICK -> beeper.beep(700, 80)
-            ScanMap.EV_START -> beeper.beep(1500, 200)
-            ScanMap.EV_END -> beeper.beep(1000, 300)
-        }
-    }
-
-    private fun liveBeep(nowMs: Long, level: Float) {
-
-        if (!soundEnabled) {
-            return
-        }
-
-        val interval = (700f - 550f * level).toLong()
-
-        if (nowMs - lastBeepMs < interval) {
+        if (lvl <= 0.12f || nowMs - lastBeepMs < 1100) {
             return
         }
 
         lastBeepMs = nowMs
-        engine.muteAcUntilMs = nowMs + 120
-        beeper.beep((500f + 1500f * level).toInt(), 70)
-    }
+        e.muteUntilMs = nowMs + 450
 
-    private fun stateLine(nowMs: Long): String {
-
-        if (nowMs < messageUntilMs) {
-            return message
-        }
-
-        if (engine.calibrating) {
-            return "Калибровка: держи телефон неподвижно вдали от металла." +
-                engine.notice
-        }
-
-        return when (map.state) {
-            1 -> "Приготовься, старт через ${map.secondsLeft} с. Прижми телефон к стене в начале отрезка."
-            2 -> "ВЕДИ телефон слева направо ровно и не вращай. Осталось ${map.secondsLeft} с."
-            else -> "Готов. Проходов: ${map.row} из ${ScanMap.ROWS}. Нажми «Начать проход»."
+        if (wire >= metal) {
+            beeper.beep((1200f + 800f * lvl).toInt(), 120)
+        } else {
+            beeper.beep((350f + 400f * lvl).toInt(), 200)
         }
     }
 
-    private fun refreshUi(nowMs: Long) {
+    private fun refreshUi() {
 
         val e = engine
+        val wire = e.wireLevel
+        val metal = e.metalLevel
 
-        ui.levelBar.progress = (e.level * 100f).toInt()
-        ui.stateText.text = stateLine(nowMs)
-
-        ui.liveText.text = if (e.acMode) {
-            String.format(
-                Locale.US,
-                "Переменное поле: %.3f µT (шум %.3f µT)",
-                e.acRms, e.acFloor
+        if (e.calibrating) {
+            ui.setCard(
+                "ПОДГОТОВКА",
+                "Держи телефон неподвижно вдали от металла",
+                colorGrey
             )
+        } else if (wire >= 0.15f && metal >= 0.15f) {
+            ui.setCard(
+                "ПРОВОД + МЕТАЛЛ",
+                "Переменное поле 50 Гц и металл рядом",
+                colorRed
+            )
+        } else if (wire >= 0.15f) {
+            ui.setCard(
+                "ПРОВОД ПОД НАПРЯЖЕНИЕМ",
+                "Найдено переменное поле 50 Гц",
+                colorRed
+            )
+        } else if (metal >= 0.15f) {
+            ui.setCard(
+                "МЕТАЛЛ",
+                "Коробка, арматура, труба или магнит",
+                colorOrange
+            )
+        } else {
+            ui.setCard(
+                "ЧИСТО",
+                "Двигай телефон медленно вдоль стены",
+                colorGreen
+            )
+        }
+
+        ui.wireBar.level = wire
+        ui.wireBar.invalidate()
+        ui.metalBar.level = metal
+        ui.metalBar.invalidate()
+
+        ui.wireLabel.text = if (e.rateHz > 0f && !e.mains.valid) {
+            "ПРОВОД 50 Гц: недоступен при такой частоте датчика"
         } else {
             String.format(
                 Locale.US,
-                "Поле: %.1f µT, отклонение %.1f µT",
-                e.smoothMag, e.signal()
+                "ПРОВОД 50 Гц: %.3f µT, x%.1f над шумом",
+                e.mains.amp, e.mains.ratio
             )
         }
 
-        ui.scanView.scaleMin = if (e.acMode) e.acFloor * 2f else 5f
-        ui.scanView.invalidate()
+        ui.metalLabel.text =
+            String.format(Locale.US, "МЕТАЛЛ: отклонение %.1f µT", e.metalDev)
 
-        ui.axisText.text =
-            "Слева направо: 0–${map.widthCm} см. Каждый следующий проход выше на ${map.rowCm} см. Нижний ряд — первый проход."
+        ui.hintText.text = e.hint
 
-        ui.sensorInfoText.text =
-            infoBase + "\n" +
-            String.format(Locale.US, "Частота опроса: ~%.0f Гц", e.rateHz)
+        var info = String.format(
+            Locale.US,
+            "Частота опроса датчика: %.0f Гц. 50 Гц виден как %.0f Гц.",
+            e.rateHz, e.mains.effHz
+        )
+        if (e.rateHz in 1f..89f) {
+            info += "\nДатчик отдаёт мало отсчётов: поиск провода может работать плохо."
+        }
+        ui.infoText.text = info
+
+        ui.sensorInfoText.text = infoBase
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
-
-        if (accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE) {
-            engine.notice = "\nНизкая точность датчика. Удали телефон от магнитов."
-        }
+        // не используется
     }
 }
 
