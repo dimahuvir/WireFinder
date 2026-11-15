@@ -1,250 +1,181 @@
+
 package com.wirefinder.fivecm
 
+import android.app.Activity
+import android.os.Bundle
 import android.content.Context
-import android.graphics.Typeface
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.ProgressBar
-import android.widget.ScrollView
-import android.widget.TextView
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.widget.Toast
+import kotlin.math.sqrt
 
-class Ui(private val ctx: Context) {
+class MainActivity : Activity(), SensorEventListener {
 
-    lateinit var magnitudeText: TextView
-    lateinit var deltaText: TextView
-    lateinit var statusText: TextView
-    lateinit var sensorInfoText: TextView
-    lateinit var historyText: TextView
-    lateinit var depthText: TextView
-    lateinit var depthHint: TextView
-    lateinit var peakText: TextView
-    lateinit var scopeCaption: TextView
-    lateinit var levelBar: ProgressBar
-    lateinit var scopeChart: ChartView
-    lateinit var trendChart: ChartView
+    private lateinit var sensorManager: SensorManager
+    private var magneticSensor: Sensor? = null
+    private lateinit var ui: Ui
 
-    lateinit var m1Button: Button
-    lateinit var m2Button: Button
-    lateinit var offsetButton: Button
-    lateinit var calibrateButton: Button
-    lateinit var modeButton: Button
-    lateinit var soundButton: Button
-    lateinit var vibrationButton: Button
+    private var baseline = 0f
+    private var calibrated = false
+    private var soundEnabled = true
+    private var vibrationEnabled = false
 
-    fun build(): View {
+    private var sampleCount = 0
+    private var peak = 0f
 
-        val root = LinearLayout(ctx)
-        root.orientation = LinearLayout.VERTICAL
-        root.setPadding(dp(18), dp(18), dp(18), dp(18))
-        root.setBackgroundColor(0xFFF3F6FA.toInt())
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
 
-        val scroll = ScrollView(ctx)
+        ui = Ui(this)
+        setContentView(ui.build())
 
-        val content = LinearLayout(ctx)
-        content.orientation = LinearLayout.VERTICAL
+        sensorManager = getSystemService(
+            Context.SENSOR_SERVICE
+        ) as SensorManager
 
-        addTop(content)
-        addCharts(content)
-        addButtons(content)
-        addInfo(content)
-
-        scroll.addView(content)
-        root.addView(scroll)
-
-        return root
-    }
-
-    private fun addTop(content: LinearLayout) {
-
-        content.addView(label("WIREFINDER 5CM", 26, true, 0xFF14263D.toInt()))
-
-        content.addView(
-            label(
-                "Поиск изменений магнитного поля встроенным датчиком телефона",
-                14, false, 0xFF536477.toInt()
-            )
+        magneticSensor = sensorManager.getDefaultSensor(
+            Sensor.TYPE_MAGNETIC_FIELD
         )
 
-        content.addView(gap(12))
-
-        content.addView(label("Расстояние до провода", 15, true, 0xFF536477.toInt()))
-
-        depthText = label("—", 34, true, 0xFF147D64.toInt())
-        content.addView(depthText)
-
-        depthHint = label("", 12, false, 0xFF536477.toInt())
-        content.addView(depthHint)
-
-        content.addView(gap(8))
-
-        magnitudeText = label("--.- µT", 30, true, 0xFF14263D.toInt())
-        magnitudeText.gravity = Gravity.CENTER
-        content.addView(magnitudeText)
-
-        val caption = label("Модуль магнитного поля", 12, false, 0xFF536477.toInt())
-        caption.gravity = Gravity.CENTER
-        content.addView(caption)
-
-        content.addView(gap(6))
-
-        levelBar = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal)
-        levelBar.max = 100
-        levelBar.progress = 0
-        levelBar.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(14)
-        )
-        content.addView(levelBar)
-
-        content.addView(gap(6))
-
-        deltaText = label("Калибровка...", 16, true, 0xFF14263D.toInt())
-        content.addView(deltaText)
-
-        statusText = label("Ожидание датчика...", 15, true, 0xFF536477.toInt())
-        content.addView(statusText)
-
-        content.addView(gap(10))
-    }
-
-    private fun addCharts(content: LinearLayout) {
-
-        scopeCaption = label(
-            "Колебания поля по осям X, Y, Z", 12, false, 0xFF536477.toInt()
-        )
-        content.addView(scopeCaption)
-
-        scopeChart = ChartView(ctx, 3, 200, true)
-        scopeChart.minRange = 0.05f
-        scopeChart.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(130)
-        )
-        content.addView(scopeChart)
-
-        content.addView(gap(8))
-
-        content.addView(
-            label("Сила сигнала за последние 15 секунд", 12, false, 0xFF536477.toInt())
-        )
-
-        trendChart = ChartView(ctx, 1, 150, false)
-        trendChart.minRange = 0.05f
-        trendChart.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(100)
-        )
-        content.addView(trendChart)
-
-        peakText = label("Пик: --", 13, true, 0xFF14263D.toInt())
-        content.addView(peakText)
-
-        content.addView(gap(10))
-    }
-
-    private fun addButtons(content: LinearLayout) {
-
-        m1Button = button("Замер 1: прижми к стене на максимуме")
-        content.addView(m1Button)
-
-        m2Button = button("Замер 2: отодвинь от стены на 5 см")
-        content.addView(m2Button)
-
-        offsetButton = button("Отступ для замера 2: 5 см")
-        content.addView(offsetButton)
-
-        content.addView(gap(8))
-
-        calibrateButton = button("Перекалибровать (держи неподвижно)")
-        content.addView(calibrateButton)
-
-        modeButton = button("Режим: ПРОВОД ПОД НАГРУЗКОЙ (50 Гц)")
-        content.addView(modeButton)
-
-        soundButton = button("Звук: включён")
-        content.addView(soundButton)
-
-        vibrationButton = button("Вибрация: выключена")
-        content.addView(vibrationButton)
-
-        content.addView(gap(14))
-    }
-
-    private fun addInfo(content: LinearLayout) {
-
-        content.addView(label("Как искать провод", 17, true, 0xFF14263D.toInt()))
-
-        content.addView(
-            label(
-                "1. Подержи телефон неподвижно 2 секунды вдали от металла.\n" +
-                "2. Включи на этой линии мощную нагрузку: чайник, обогреватель, фен.\n" +
-                "3. Не вращай телефон, держи его в одном положении.\n" +
-                "4. Двигай медленно поперёк предполагаемой линии. Датчик обычно в верхней части телефона.\n" +
-                "5. На максимуме сделай замер 1 у стены, затем замер 2 с отступом. После этого расстояние показывается вживую.\n" +
-                "6. Графики показывают только колебания поля. Направление и силу тока телефон не определяет.",
-                13, false, 0xFF536477.toInt()
-            )
-        )
-
-        content.addView(gap(14))
-
-        content.addView(label("Последние измерения", 17, true, 0xFF14263D.toInt()))
-        historyText = label("Пока нет данных", 13, false, 0xFF536477.toInt())
-        content.addView(historyText)
-
-        content.addView(gap(14))
-
-        content.addView(label("Информация о датчике", 17, true, 0xFF14263D.toInt()))
-        sensorInfoText = label("Проверка...", 13, false, 0xFF536477.toInt())
-        content.addView(sensorInfoText)
-
-        content.addView(gap(14))
-
-        content.addView(label("ВАЖНО О БЕЗОПАСНОСТИ", 16, true, 0xFF9A3412.toInt()))
-
-        content.addView(
-            label(
-                "Это экспериментальный магнитометр, а не детектор скрытой проводки. Расстояние показывается как грубая оценка с погрешностью 50% и больше. В двухжильном кабеле токи идут навстречу друг другу, и поле почти гасится, поэтому провод может быть не виден. Арматура, трубы, магниты и динамики дают похожие сигналы. Не сверли стену по показаниям приложения. Для проверки используй профессиональный детектор.",
-                13, false, 0xFF8A3B24.toInt()
-            )
-        )
-    }
-
-    private fun button(text: String): Button {
-        val b = Button(ctx)
-        b.text = text
-        b.isAllCaps = false
-        return b
-    }
-
-    private fun label(
-        value: String,
-        size: Int,
-        bold: Boolean,
-        color: Int
-    ): TextView {
-        val tv = TextView(ctx)
-        tv.text = value
-        tv.textSize = size.toFloat()
-        tv.setTextColor(color)
-
-        if (bold) {
-            tv.setTypeface(tv.typeface, Typeface.BOLD)
+        if (magneticSensor == null) {
+            ui.statusText.text = "Магнитометр не найден!"
+            ui.sensorInfoText.text = "Телефон не поддерживает магнитный датчик."
+            return
         }
 
-        tv.setPadding(0, dp(5), 0, dp(5))
-        return tv
+        ui.sensorInfoText.text =
+            "Магнитометр: ${magneticSensor!!.name}\n" +
+            "Производитель: ${magneticSensor!!.vendor}\n" +
+            "Максимальный диапазон: ${magneticSensor!!.maximumRange} µT"
+
+        setupButtons()
+
+        ui.statusText.text = "Датчик готов. Начни калибровку."
     }
 
-    private fun gap(height: Int): View {
-        val v = View(ctx)
-        v.layoutParams = LinearLayout.LayoutParams(1, dp(height))
-        return v
+    private fun setupButtons() {
+
+        ui.calibrateButton.setOnClickListener {
+            baseline = 0f
+            calibrated = false
+            sampleCount = 0
+            ui.deltaText.text = "Калибровка..."
+            ui.statusText.text = "Держи телефон неподвижно"
+        }
+
+        ui.m1Button.setOnClickListener {
+            ui.statusText.text = "Замер 1: используй текущий сигнал"
+            Toast.makeText(this, "Замер 1", Toast.LENGTH_SHORT).show()
+        }
+
+        ui.m2Button.setOnClickListener {
+            ui.statusText.text = "Замер 2: используй текущий сигнал"
+            Toast.makeText(this, "Замер 2", Toast.LENGTH_SHORT).show()
+        }
+
+        ui.offsetButton.setOnClickListener {
+            Toast.makeText(
+                this,
+                "Отступ: 5 см",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        ui.modeButton.setOnClickListener {
+            Toast.makeText(
+                this,
+                "Режим переменного тока 50 Гц",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        ui.soundButton.setOnClickListener {
+            soundEnabled = !soundEnabled
+            ui.soundButton.text =
+                if (soundEnabled) "Звук: включён"
+                else "Звук: выключен"
+        }
+
+        ui.vibrationButton.setOnClickListener {
+            vibrationEnabled = !vibrationEnabled
+            ui.vibrationButton.text =
+                if (vibrationEnabled) "Вибрация: включена"
+                else "Вибрация: выключена"
+        }
     }
 
-    private fun dp(value: Int): Int {
-        return (value * ctx.resources.displayMetrics.density).toInt()
+    override fun onResume() {
+        super.onResume()
+
+        magneticSensor?.let {
+            sensorManager.registerListener(
+                this,
+                it,
+                SensorManager.SENSOR_DELAY_GAME
+            )
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        sensorManager.unregisterListener(this)
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event == null) return
+
+        val x = event.values[0]
+        val y = event.values[1]
+        val z = event.values[2]
+
+        val magnitude = sqrt(x*x + y*y + z*z)
+
+        if (!calibrated) {
+            sampleCount++
+            baseline += magnitude
+
+            if (sampleCount >= 40) {
+                baseline /= sampleCount
+                calibrated = true
+                ui.deltaText.text = "Базовое поле: %.2f µT".format(baseline)
+                ui.statusText.text = "Калибровка завершена"
+            }
+        }
+
+        val delta = if (calibrated) {
+            kotlin.math.abs(magnitude - baseline)
+        } else {
+            0f
+        }
+
+        if (delta > peak) peak = delta
+
+        ui.magnitudeText.text = "%.2f µT".format(magnitude)
+        ui.deltaText.text =
+            if (calibrated) "Изменение: %.2f µT".format(delta)
+            else "Калибровка: $sampleCount / 40"
+
+        ui.levelBar.progress = (delta * 5).toInt().coerceIn(0, 100)
+
+        ui.scopeChart.push(floatArrayOf(x, y, z))
+        ui.trendChart.push(floatArrayOf(delta))
+
+        ui.peakText.text = "Пик: %.2f µT".format(peak)
+
+        ui.statusText.text =
+            if (delta > 5f) "Сильное изменение поля"
+            else if (delta > 2f) "Изменение магнитного поля"
+            else "Поле относительно стабильное"
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        ui.statusText.text = when (accuracy) {
+            SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> "Точность датчика: высокая"
+            SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> "Точность датчика: средняя"
+            SensorManager.SENSOR_STATUS_ACCURACY_LOW -> "Точность датчика: низкая"
+            else -> "Точность датчика неизвестна"
+        }
     }
 }
-
-// конец файла
