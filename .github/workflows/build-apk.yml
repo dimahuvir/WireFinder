@@ -3,7 +3,6 @@ name: Build WireFinder APK
 on:
   push:
     branches: [ "main", "master" ]
-  pull_request:
   workflow_dispatch:
 
 permissions:
@@ -23,11 +22,10 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Gradle
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.9-bin.zip
-          unzip -q gradle-8.9-bin.zip
-          echo "$GITHUB_WORKSPACE/gradle-8.9/bin" >> "$GITHUB_PATH"
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.9
 
       - name: Build debug APK
         run: gradle --no-daemon assembleDebug
