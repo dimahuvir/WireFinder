@@ -2,7 +2,6 @@ package com.wirefinder.fivecm
 
 import android.content.Context
 import android.graphics.Typeface
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -13,26 +12,23 @@ import android.widget.TextView
 
 class Ui(private val ctx: Context) {
 
-    lateinit var magnitudeText: TextView
-    lateinit var deltaText: TextView
-    lateinit var statusText: TextView
-    lateinit var sensorInfoText: TextView
-    lateinit var historyText: TextView
     lateinit var depthText: TextView
     lateinit var depthHint: TextView
-    lateinit var peakText: TextView
-    lateinit var scopeCaption: TextView
+    lateinit var stateText: TextView
+    lateinit var axisText: TextView
+    lateinit var liveText: TextView
+    lateinit var sensorInfoText: TextView
     lateinit var levelBar: ProgressBar
-    lateinit var scopeChart: ChartView
-    lateinit var trendChart: ChartView
+    lateinit var scanView: ScanView
 
-    lateinit var m1Button: Button
-    lateinit var m2Button: Button
-    lateinit var offsetButton: Button
+    lateinit var startButton: Button
+    lateinit var clearButton: Button
+    lateinit var widthButton: Button
+    lateinit var rowButton: Button
     lateinit var calibrateButton: Button
     lateinit var modeButton: Button
     lateinit var soundButton: Button
-    lateinit var vibrationButton: Button
+    lateinit var testButton: Button
 
     fun build(): View {
 
@@ -46,8 +42,7 @@ class Ui(private val ctx: Context) {
         val content = LinearLayout(ctx)
         content.orientation = LinearLayout.VERTICAL
 
-        addTop(content)
-        addCharts(content)
+        addScanner(content)
         addButtons(content)
         addInfo(content)
 
@@ -57,38 +52,28 @@ class Ui(private val ctx: Context) {
         return root
     }
 
-    private fun addTop(content: LinearLayout) {
+    private fun addScanner(content: LinearLayout) {
 
-        content.addView(label("WIREFINDER 5CM", 26, true, 0xFF14263D.toInt()))
+        content.addView(label("WIREFINDER 5CM", 24, true, 0xFF14263D.toInt()))
 
-        content.addView(
-            label(
-                "Поиск изменений магнитного поля встроенным датчиком телефона",
-                14, false, 0xFF536477.toInt()
-            )
-        )
-
-        content.addView(gap(12))
-
-        content.addView(label("Расстояние до провода", 15, true, 0xFF536477.toInt()))
+        content.addView(label("Глубина провода (оценка)", 14, true, 0xFF536477.toInt()))
 
         depthText = label("—", 34, true, 0xFF147D64.toInt())
         content.addView(depthText)
 
-        depthHint = label("", 12, false, 0xFF536477.toInt())
-        content.addView(depthHint)
-
-        content.addView(gap(8))
-
-        magnitudeText = label("--.- µT", 30, true, 0xFF14263D.toInt())
-        magnitudeText.gravity = Gravity.CENTER
-        content.addView(magnitudeText)
-
-        val caption = label("Модуль магнитного поля", 12, false, 0xFF536477.toInt())
-        caption.gravity = Gravity.CENTER
-        content.addView(caption)
+        stateText = label("Ожидание датчика...", 15, true, 0xFF14263D.toInt())
+        content.addView(stateText)
 
         content.addView(gap(6))
+
+        scanView = ScanView(ctx)
+        scanView.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(260)
+        )
+        content.addView(scanView)
+
+        axisText = label("", 12, false, 0xFF536477.toInt())
+        content.addView(axisText)
 
         levelBar = ProgressBar(ctx, null, android.R.attr.progressBarStyleHorizontal)
         levelBar.max = 100
@@ -98,60 +83,28 @@ class Ui(private val ctx: Context) {
         )
         content.addView(levelBar)
 
-        content.addView(gap(6))
+        liveText = label("", 13, true, 0xFF14263D.toInt())
+        content.addView(liveText)
 
-        deltaText = label("Калибровка...", 16, true, 0xFF14263D.toInt())
-        content.addView(deltaText)
-
-        statusText = label("Ожидание датчика...", 15, true, 0xFF536477.toInt())
-        content.addView(statusText)
-
-        content.addView(gap(10))
-    }
-
-    private fun addCharts(content: LinearLayout) {
-
-        scopeCaption = label(
-            "Колебания поля по осям X, Y, Z", 12, false, 0xFF536477.toInt()
-        )
-        content.addView(scopeCaption)
-
-        scopeChart = ChartView(ctx, 3, 200, true)
-        scopeChart.minRange = 0.05f
-        scopeChart.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(130)
-        )
-        content.addView(scopeChart)
+        depthHint = label("", 13, false, 0xFF536477.toInt())
+        content.addView(depthHint)
 
         content.addView(gap(8))
-
-        content.addView(
-            label("Сила сигнала за последние 15 секунд", 12, false, 0xFF536477.toInt())
-        )
-
-        trendChart = ChartView(ctx, 1, 150, false)
-        trendChart.minRange = 0.05f
-        trendChart.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(100)
-        )
-        content.addView(trendChart)
-
-        peakText = label("Пик: --", 13, true, 0xFF14263D.toInt())
-        content.addView(peakText)
-
-        content.addView(gap(10))
     }
 
     private fun addButtons(content: LinearLayout) {
 
-        m1Button = button("Замер 1: прижми к стене на максимуме")
-        content.addView(m1Button)
+        startButton = button("Начать проход")
+        content.addView(startButton)
 
-        m2Button = button("Замер 2: отодвинь от стены на 5 см")
-        content.addView(m2Button)
+        clearButton = button("Очистить карту")
+        content.addView(clearButton)
 
-        offsetButton = button("Отступ для замера 2: 5 см")
-        content.addView(offsetButton)
+        widthButton = button("Ширина прохода: 50 см")
+        content.addView(widthButton)
+
+        rowButton = button("Шаг между проходами: 10 см")
+        content.addView(rowButton)
 
         content.addView(gap(8))
 
@@ -164,33 +117,28 @@ class Ui(private val ctx: Context) {
         soundButton = button("Звук: включён")
         content.addView(soundButton)
 
-        vibrationButton = button("Вибрация: выключена")
-        content.addView(vibrationButton)
+        testButton = button("Тест звука")
+        content.addView(testButton)
 
         content.addView(gap(14))
     }
 
     private fun addInfo(content: LinearLayout) {
 
-        content.addView(label("Как искать провод", 17, true, 0xFF14263D.toInt()))
+        content.addView(label("Как сканировать", 17, true, 0xFF14263D.toInt()))
 
         content.addView(
             label(
-                "1. Подержи телефон неподвижно 2 секунды вдали от металла.\n" +
-                "2. Включи на этой линии мощную нагрузку: чайник, обогреватель, фен.\n" +
-                "3. Не вращай телефон, держи его в одном положении.\n" +
-                "4. Двигай медленно поперёк предполагаемой линии. Датчик обычно в верхней части телефона.\n" +
-                "5. На максимуме сделай замер 1 у стены, затем замер 2 с отступом. После этого расстояние показывается вживую.\n" +
-                "6. Графики показывают только колебания поля. Направление и силу тока телефон не определяет.",
+                "1. Включи на линии мощную нагрузку: чайник, обогреватель, фен.\n" +
+                "2. Подожди калибровку, держа телефон неподвижно вдали от металла.\n" +
+                "3. Нажми «Начать проход», прижми телефон к стене в начале отрезка.\n" +
+                "4. После 3 писков веди телефон ровно, не вращая, на всю ширину отрезка за 6 секунд.\n" +
+                "5. Следующий проход делай выше на выбранный шаг. Лучше 3–6 проходов.\n" +
+                "6. Яркая линия на карте показывает, где сигнал сильнее. Белый круг: максимум.\n" +
+                "7. Если звука нет, увеличь громкость мультимедиа и нажми «Тест звука».",
                 13, false, 0xFF536477.toInt()
             )
         )
-
-        content.addView(gap(14))
-
-        content.addView(label("Последние измерения", 17, true, 0xFF14263D.toInt()))
-        historyText = label("Пока нет данных", 13, false, 0xFF536477.toInt())
-        content.addView(historyText)
 
         content.addView(gap(14))
 
@@ -204,7 +152,7 @@ class Ui(private val ctx: Context) {
 
         content.addView(
             label(
-                "Это экспериментальный магнитометр, а не детектор скрытой проводки. Расстояние показывается как грубая оценка с погрешностью 50% и больше. В двухжильном кабеле токи идут навстречу друг другу, и поле почти гасится, поэтому провод может быть не виден. Арматура, трубы, магниты и динамики дают похожие сигналы. Не сверли стену по показаниям приложения. Для проверки используй профессиональный детектор.",
+                "Это экспериментальный магнитометр, а не детектор скрытой проводки. Карта показывает силу магнитного сигнала, а не сам провод. Глубина оценивается грубо, погрешность 50% и больше. В двухжильном кабеле токи идут навстречу друг другу, и поле почти гасится, поэтому провод может быть не виден. Арматура, трубы, магниты и динамики дают похожие сигналы. Не сверли стену по показаниям приложения. Для проверки используй профессиональный детектор.",
                 13, false, 0xFF8A3B24.toInt()
             )
         )
