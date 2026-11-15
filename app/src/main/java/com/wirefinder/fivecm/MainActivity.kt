@@ -28,11 +28,6 @@ class MainActivity : Activity(), SensorEventListener {
     private var lastUiMs = 0L
     private var lastBeepMs = 0L
 
-    private val colorGrey = 0xFF64748B.toInt()
-    private val colorGreen = 0xFF2E8B57.toInt()
-    private val colorOrange = 0xFFE07B00.toInt()
-    private val colorRed = 0xFFC62828.toInt()
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -65,6 +60,8 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun setupButtons() {
+
+        ui.sensButton.text = "Чувствительность: " + sensNames[engine.sens]
 
         ui.zeroButton.setOnClickListener {
             engine.zero(SystemClock.elapsedRealtime())
@@ -144,65 +141,38 @@ class MainActivity : Activity(), SensorEventListener {
             return
         }
 
-        val wire = e.wireLevel
-        val metal = e.metalLevel
-        val lvl = if (wire > metal) wire else metal
+        if (!e.wireOn && !e.metalOn) {
+            return
+        }
 
-        if (lvl <= 0.12f || nowMs - lastBeepMs < 1100) {
+        if (nowMs - lastBeepMs < 1100) {
             return
         }
 
         lastBeepMs = nowMs
-        e.muteUntilMs = nowMs + 450
 
-        if (wire >= metal) {
-            beeper.beep((1200f + 800f * lvl).toInt(), 120)
+        if (e.wireOn) {
+            e.muteUntilMs = nowMs + 280
+            beeper.beep((1200f + 800f * e.wireLevel).toInt(), 120)
         } else {
-            beeper.beep((350f + 400f * lvl).toInt(), 200)
+            e.muteUntilMs = nowMs + 350
+            beeper.beep((350f + 400f * e.metalLevel).toInt(), 200)
         }
     }
 
     private fun refreshUi() {
 
         val e = engine
-        val wire = e.wireLevel
-        val metal = e.metalLevel
 
-        if (e.calibrating) {
-            ui.setCard(
-                "ПОДГОТОВКА",
-                "Держи телефон неподвижно вдали от металла",
-                colorGrey
-            )
-        } else if (wire >= 0.15f && metal >= 0.15f) {
-            ui.setCard(
-                "ПРОВОД + МЕТАЛЛ",
-                "Переменное поле 50 Гц и металл рядом",
-                colorRed
-            )
-        } else if (wire >= 0.15f) {
-            ui.setCard(
-                "ПРОВОД ПОД НАПРЯЖЕНИЕМ",
-                "Найдено переменное поле 50 Гц",
-                colorRed
-            )
-        } else if (metal >= 0.15f) {
-            ui.setCard(
-                "МЕТАЛЛ",
-                "Коробка, арматура, труба или магнит",
-                colorOrange
-            )
-        } else {
-            ui.setCard(
-                "ЧИСТО",
-                "Двигай телефон медленно вдоль стены",
-                colorGreen
-            )
-        }
+        ui.lampWait.set(e.calibrating)
+        ui.lampClean.set(e.cleanOn)
+        ui.lampMetal.set(e.metalOn)
+        ui.lampWire.set(e.wireOn)
+        ui.lampOver.set(e.overOn)
 
-        ui.wireBar.level = wire
+        ui.wireBar.level = e.wireLevel
         ui.wireBar.invalidate()
-        ui.metalBar.level = metal
+        ui.metalBar.level = e.metalLevel
         ui.metalBar.invalidate()
 
         ui.wireLabel.text = if (e.rateHz > 0f && !e.mains.valid) {
