@@ -6,17 +6,12 @@ import kotlin.math.sqrt
 class Engine {
 
     var acMode = true
-    val depth = Depth()
-
     var smoothMag = 0f
     var baseValue: Float? = null
     var calibrating = false
     var notice = ""
     var acRms = 0f
     var acFloor = 0.02f
-    var hpX = 0f
-    var hpY = 0f
-    var hpZ = 0f
     var rateHz = 0f
     var level = 0f
     var muteAcUntilMs = 0L
@@ -29,7 +24,11 @@ class Engine {
     private var prevX = 0f
     private var prevY = 0f
     private var prevZ = 0f
+    private var hpX = 0f
+    private var hpY = 0f
+    private var hpZ = 0f
     private var acPower = 0f
+    private var gainRef = 0f
 
     private var calibStartMs = 0L
     private var calibUntilMs = 0L
@@ -47,9 +46,22 @@ class Engine {
         autoCalibDone = false
     }
 
-    fun currentSignal(): Float {
-        val p = acPower - acFloor * acFloor
-        return if (p > 0f) sqrt(p) else 0.0001f
+    fun resetGain() {
+        gainRef = 0f
+    }
+
+    fun signal(): Float {
+        if (calibrating) {
+            return 0f
+        }
+
+        if (acMode) {
+            val p = acPower - acFloor * acFloor
+            return if (p > 0f) sqrt(p) else 0f
+        }
+
+        val b = baseValue
+        return if (b == null) 0f else abs(smoothMag - b)
     }
 
     fun startCalibration(nowMs: Long) {
@@ -62,7 +74,6 @@ class Engine {
         calibAcCount = 0
         calibMin = 1.0e9f
         calibMax = -1.0e9f
-        depth.cancel()
     }
 
     private fun finishCalibration(nowMs: Long) {
@@ -82,8 +93,7 @@ class Engine {
         }
         acFloor = if (avgAc < 0.01f) 0.01f else avgAc
 
-        depth.reset(acFloor)
-
+        gainRef = 0f
         notice = ""
         calibrating = false
     }
@@ -105,17 +115,23 @@ class Engine {
         }
     }
 
-    private fun computeLevel(): Float {
-        val base = baseValue
+    private fun updateLevel() {
+        val sig = signal()
+        val gate = if (acMode) acFloor * 0.5f else 2f
+        val minRef = if (acMode) acFloor * 2f else 10f
 
-        if (calibrating || base == null) {
-            return 0f
+        gainRef *= 0.9995f
+        if (sig > gainRef) {
+            gainRef = sig
+        }
+        if (gainRef < minRef) {
+            gainRef = minRef
         }
 
-        return if (!acMode) {
-            ((abs(smoothMag - base) - 1.5f) / 20f).coerceIn(0f, 1f)
+        level = if (calibrating || baseValue == null) {
+            0f
         } else {
-            ((acRms / acFloor - 1.4f) / 6f).coerceIn(0f, 1f)
+            ((sig - gate) / (gainRef - gate)).coerceIn(0f, 1f)
         }
     }
 
@@ -158,7 +174,7 @@ class Engine {
 
         if (nowMs >= muteAcUntilMs) {
             val e2 = hpX * hpX + hpY * hpY + hpZ * hpZ
-            acPower += (e2 - acPower) * (dt / (0.3f + dt))
+            acPower += (e2 - acPower) * (dt / (0.2f + dt))
             acRms = sqrt(acPower)
         }
 
@@ -169,11 +185,9 @@ class Engine {
 
         if (calibrating) {
             calibrateStep(mag, nowMs)
-        } else {
-            depth.feed(currentSignal(), nowMs, acFloor)
         }
 
-        level = computeLevel()
+        updateLevel()
     }
 }
 
