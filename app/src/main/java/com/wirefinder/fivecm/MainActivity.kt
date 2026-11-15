@@ -2,6 +2,9 @@ package com.wirefinder.fivecm
 
 import android.app.Activity
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Typeface
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -28,6 +31,111 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.sqrt
 
+class ChartView(
+    context: Context,
+    private val seriesCount: Int,
+    private val capacity: Int,
+    private val symmetric: Boolean
+) : View(context) {
+
+    var minRange = 0.05f
+
+    private val data = Array(seriesCount) { FloatArray(capacity) }
+    private var count = 0
+    private var head = 0
+    private val colors = intArrayOf(
+        0xFFD9381E.toInt(),
+        0xFF147D64.toInt(),
+        0xFF2B6CB0.toInt()
+    )
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val framePaint = Paint()
+    private val path = Path()
+
+    init {
+        linePaint.style = Paint.Style.STROKE
+        linePaint.strokeWidth = 3f
+        framePaint.style = Paint.Style.STROKE
+        framePaint.strokeWidth = 2f
+        framePaint.color = 0xFFCBD5E0.toInt()
+        setBackgroundColor(0xFFFFFFFF.toInt())
+    }
+
+    fun push(values: FloatArray) {
+        for (s in 0 until seriesCount) {
+            data[s][head] = values[s]
+        }
+        head = (head + 1) % capacity
+        if (count < capacity) {
+            count++
+        }
+    }
+
+    fun clear() {
+        count = 0
+        head = 0
+    }
+
+    fun peak(): Float {
+        var m = 0f
+        for (s in 0 until seriesCount) {
+            for (i in 0 until count) {
+                val v = abs(data[s][i])
+                if (v > m) {
+                    m = v
+                }
+            }
+        }
+        return m
+    }
+
+    fun scale(): Float {
+        val m = peak()
+        return if (m < minRange) minRange else m
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+
+        val w = width.toFloat()
+        val h = height.toFloat()
+
+        canvas.drawRect(1f, 1f, w - 1f, h - 1f, framePaint)
+
+        if (symmetric) {
+            canvas.drawLine(0f, h / 2f, w, h / 2f, framePaint)
+        }
+
+        if (count < 2) {
+            return
+        }
+
+        val sc = scale()
+        val start = if (count < capacity) 0 else head
+
+        for (s in 0 until seriesCount) {
+            path.reset()
+            for (k in 0 until count) {
+                val idx = (start + k) % capacity
+                val v = data[s][idx]
+                val px = w * k / (capacity - 1).toFloat()
+                val py = if (symmetric) {
+                    h / 2f - v / sc * (h / 2f - 4f)
+                } else {
+                    h - 4f - v / sc * (h - 8f)
+                }
+                if (k == 0) {
+                    path.moveTo(px, py)
+                } else {
+                    path.lineTo(px, py)
+                }
+            }
+            linePaint.color = colors[s % colors.size]
+            canvas.drawPath(path, linePaint)
+        }
+    }
+}
+
 class MainActivity : Activity(), SensorEventListener {
 
     private enum class Mode { DC, AC }
@@ -43,8 +151,16 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var calibrateButton: Button
     private lateinit var modeButton: Button
     private lateinit var levelBar: ProgressBar
+    private lateinit var scopeChart: ChartView
+    private lateinit var trendChart: ChartView
+    private lateinit var scopeCaption: TextView
+    private lateinit var peakText: TextView
+    private lateinit var depthText: TextView
+    private lateinit var depthHint: TextView
+    private lateinit var m2Button: Button
+    private lateinit var offsetButton: Button
 
-    private var mode = Mode.DC
+    private var mode = Mode.AC
     private var soundEnabled = true
     private var alertEnabled = false
 
@@ -83,6 +199,22 @@ class MainActivity : Activity(), SensorEventListener {
     private var acFloor = 0.02f
     private var muteAcUntilMs = 0L
     private var rateHz = 0f
+
+    private val scopeBuf = FloatArray(3)
+    private val trendBuf = FloatArray(1)
+
+    // Замеры глубины
+    private var s0: Float? = null
+    private var s1: Float? = null
+    private var offsetCm = 5
+    private var hNear: Float? = null
+    private var hFar: Float? = null
+    private var depthMsg = "Сделай замер 1: прижми телефон к стене над максимумом сигнала."
+    private var measureStage = 0
+    private var measureStartMs = 0L
+    private var measureUntilMs = 0L
+    private var measureSum = 0.0
+    private var measureCount = 0
 
     private var level = 0f
     private var lastUiMs = 0L
@@ -152,18 +284,29 @@ class MainActivity : Activity(), SensorEventListener {
             )
         )
 
-        content.addView(gap(16))
+        content.addView(gap(12))
 
-        magnitudeText = label("--.- µT", 42, true, 0xFF147D64.toInt())
+        // Расстояние до провода
+        content.addView(
+            label("Расстояние до провода", 15, true, 0xFF536477.toInt())
+        )
+        depthText = label("—", 34, true, 0xFF147D64.toInt())
+        content.addView(depthText)
+        depthHint = label("", 12, false, 0xFF536477.toInt())
+        content.addView(depthHint)
+
+        content.addView(gap(8))
+
+        magnitudeText = label("--.- µT", 30, true, 0xFF14263D.toInt())
         magnitudeText.gravity = Gravity.CENTER
         content.addView(magnitudeText)
 
         val magCaption =
-            label("Модуль магнитного поля", 13, false, 0xFF536477.toInt())
+            label("Модуль магнитного поля", 12, false, 0xFF536477.toInt())
         magCaption.gravity = Gravity.CENTER
         content.addView(magCaption)
 
-        content.addView(gap(10))
+        content.addView(gap(6))
 
         levelBar = ProgressBar(
             this, null, android.R.attr.progressBarStyleHorizontal
@@ -175,14 +318,85 @@ class MainActivity : Activity(), SensorEventListener {
         )
         content.addView(levelBar)
 
-        content.addView(gap(10))
+        content.addView(gap(6))
 
-        deltaText = label("Калибровка...", 18, true, 0xFF14263D.toInt())
+        deltaText = label("Калибровка...", 16, true, 0xFF14263D.toInt())
         content.addView(deltaText)
 
-        statusText = label("Ожидание датчика...", 16, true, 0xFF536477.toInt())
+        statusText = label("Ожидание датчика...", 15, true, 0xFF536477.toInt())
         content.addView(statusText)
+
         content.addView(gap(10))
+
+        // Осциллограф
+        scopeCaption = label(
+            "Колебания поля по осям X, Y, Z", 12, false, 0xFF536477.toInt()
+        )
+        content.addView(scopeCaption)
+
+        scopeChart = ChartView(this, 3, 200, true)
+        scopeChart.minRange = 0.05f
+        scopeChart.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(130)
+        )
+        content.addView(scopeChart)
+
+        content.addView(gap(8))
+
+        // График силы сигнала
+        content.addView(
+            label(
+                "Сила сигнала за последние 15 секунд",
+                12, false, 0xFF536477.toInt()
+            )
+        )
+
+        trendChart = ChartView(this, 1, 150, false)
+        trendChart.minRange = 0.05f
+        trendChart.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(100)
+        )
+        content.addView(trendChart)
+
+        peakText = label("Пик: --", 13, true, 0xFF14263D.toInt())
+        content.addView(peakText)
+
+        content.addView(gap(10))
+
+        // Кнопки замеров
+        val m1Button = Button(this)
+        m1Button.text = "Замер 1: прижми к стене на максимуме"
+        m1Button.isAllCaps = false
+        m1Button.setOnClickListener {
+            startMeasure(1)
+        }
+        content.addView(m1Button)
+
+        m2Button = Button(this)
+        m2Button.text = "Замер 2: отодвинь от стены на $offsetCm см"
+        m2Button.isAllCaps = false
+        m2Button.setOnClickListener {
+            startMeasure(2)
+        }
+        content.addView(m2Button)
+
+        offsetButton = Button(this)
+        offsetButton.text = "Отступ для замера 2: $offsetCm см"
+        offsetButton.isAllCaps = false
+        offsetButton.setOnClickListener {
+            offsetCm = when (offsetCm) {
+                3 -> 5
+                5 -> 10
+                else -> 3
+            }
+            offsetButton.text = "Отступ для замера 2: $offsetCm см"
+            m2Button.text = "Замер 2: отодвинь от стены на $offsetCm см"
+            s1 = null
+            recomputeDepth()
+        }
+        content.addView(offsetButton)
+
+        content.addView(gap(8))
 
         calibrateButton = Button(this)
         calibrateButton.text = "Перекалибровать (держи неподвижно)"
@@ -194,17 +408,14 @@ class MainActivity : Activity(), SensorEventListener {
         content.addView(calibrateButton)
 
         modeButton = Button(this)
-        modeButton.text = "Режим: МЕТАЛЛ (постоянное поле)"
+        modeButton.text = "Режим: ПРОВОД ПОД НАГРУЗКОЙ (50 Гц)"
         modeButton.isAllCaps = false
         modeButton.setOnClickListener {
             if (mode == Mode.DC) {
-                mode = Mode.AC
-                modeButton.text = "Режим: ПРОВОД ПОД НАГРУЗКОЙ (50 Гц)"
+                setMode(Mode.AC)
             } else {
-                mode = Mode.DC
-                modeButton.text = "Режим: МЕТАЛЛ (постоянное поле)"
+                setMode(Mode.DC)
             }
-            history.clear()
         }
         content.addView(modeButton)
 
@@ -240,10 +451,11 @@ class MainActivity : Activity(), SensorEventListener {
         content.addView(
             label(
                 "1. Подержи телефон неподвижно 2 секунды вдали от металла.\n" +
-                "2. Для режима «Провод» включи на этой линии мощную нагрузку: чайник, обогреватель, фен.\n" +
+                "2. Включи на этой линии мощную нагрузку: чайник, обогреватель, фен.\n" +
                 "3. Не вращай телефон, держи его в одном положении.\n" +
                 "4. Двигай медленно поперёк предполагаемой линии. Датчик обычно в верхней части телефона.\n" +
-                "5. Во время работы режима «Провод» не трогай экран и не двигай телефон резко.",
+                "5. На максимуме сделай замер 1 у стены, затем замер 2 с отступом. После этого расстояние показывается вживую.\n" +
+                "6. Графики показывают только колебания поля. Направление и силу тока телефон не определяет.",
                 13, false, 0xFF536477.toInt()
             )
         )
@@ -263,7 +475,7 @@ class MainActivity : Activity(), SensorEventListener {
         content.addView(label("ВАЖНО О БЕЗОПАСНОСТИ", 16, true, 0xFF9A3412.toInt()))
         content.addView(
             label(
-                "Это экспериментальный магнитометр, а не детектор скрытой проводки. Он не измеряет глубину и не распознаёт кабель напрямую. В двухжильном кабеле токи идут навстречу друг другу, и поле почти гасится, поэтому провод может быть не виден. Арматура, трубы, магниты и динамики дают похожие сигналы. Не сверли стену по показаниям приложения. Для проверки используй профессиональный детектор.",
+                "Это экспериментальный магнитометр, а не детектор скрытой проводки. Расстояние показывается как грубая оценка с погрешностью 50% и больше. В двухжильном кабеле токи идут навстречу друг другу, и поле почти гасится, поэтому провод может быть не виден. Арматура, трубы, магниты и динамики дают похожие сигналы. Не сверли стену по показаниям приложения. Для проверки используй профессиональный детектор.",
                 13, false, 0xFF8A3B24.toInt()
             )
         )
@@ -272,6 +484,18 @@ class MainActivity : Activity(), SensorEventListener {
         root.addView(scroll)
 
         setContentView(root)
+    }
+
+    private fun setMode(m: Mode) {
+        mode = m
+        modeButton.text = if (m == Mode.DC) {
+            "Режим: МЕТАЛЛ (постоянное поле)"
+        } else {
+            "Режим: ПРОВОД ПОД НАГРУЗКОЙ (50 Гц)"
+        }
+        trendChart.clear()
+        trendChart.minRange = if (m == Mode.DC) 2f else 0.05f
+        history.clear()
     }
 
     override fun onResume() {
@@ -311,6 +535,7 @@ class MainActivity : Activity(), SensorEventListener {
         calibAcCount = 0
         calibMin = 1.0e9f
         calibMax = -1.0e9f
+        measureStage = 0
     }
 
     private fun finishCalibration() {
@@ -334,270 +559,126 @@ class MainActivity : Activity(), SensorEventListener {
         }
         acFloor = if (avgAc < 0.01f) 0.01f else avgAc
 
+        s0 = null
+        s1 = null
+        recomputeDepth()
+
         notice = ""
         calibrating = false
     }
 
-    override fun onSensorChanged(event: SensorEvent) {
+    private fun currentSignal(): Float {
+        val p = acPower - acFloor * acFloor
+        return if (p > 0f) sqrt(p) else 0.0001f
+    }
 
-        if (event.sensor.type != Sensor.TYPE_MAGNETIC_FIELD) {
-            return
-        }
-
-        val x = event.values[0]
-        val y = event.values[1]
-        val z = event.values[2]
-
-        val nowMs = SystemClock.elapsedRealtime()
-        val ts = event.timestamp
-
-        var dt = 0.005f
-        if (lastTsNs != 0L) {
-            val d = (ts - lastTsNs) / 1.0e9f
-            if (d > 0.0005f && d < 0.1f) {
-                dt = d
-            }
-        }
-        lastTsNs = ts
-
-        if (rateHz == 0f) {
-            rateHz = 1f / dt
-        } else {
-            rateHz = rateHz * 0.98f + (1f / dt) * 0.02f
-        }
-
-        val mag = sqrt(x * x + y * y + z * z)
-
-        if (!smoothInit) {
-            smoothMag = mag
-            smoothInit = true
-        } else {
-            val k = dt / (0.08f + dt)
-            smoothMag += (mag - smoothMag) * k
-        }
-
-        // Фильтр высоких частот для переменного поля
-        if (hasPrev) {
-            val a = hpRc / (hpRc + dt)
-            hpX = a * (hpX + x - prevX)
-            hpY = a * (hpY + y - prevY)
-            hpZ = a * (hpZ + z - prevZ)
-        }
-        prevX = x
-        prevY = y
-        prevZ = z
-        hasPrev = true
-
-        if (nowMs >= muteAcUntilMs) {
-            val e2 = hpX * hpX + hpY * hpY + hpZ * hpZ
-            val k2 = dt / (0.3f + dt)
-            acPower += (e2 - acPower) * k2
-            acRms = sqrt(acPower)
-        }
-
-        // Калибровка
-        if (!autoCalibDone) {
-            autoCalibDone = true
-            startCalibration()
-        }
-
+    private fun startMeasure(stage: Int) {
         if (calibrating) {
-            calibSumMag += mag
-            calibCount++
-            if (mag < calibMin) calibMin = mag
-            if (mag > calibMax) calibMax = mag
-
-            if (nowMs - calibStartMs >= 600) {
-                calibSumAc += acRms
-                calibAcCount++
-            }
-
-            if (nowMs >= calibUntilMs) {
-                finishCalibration()
-            }
+            depthMsg = "Подожди, идёт калибровка."
+            return
         }
 
-        // Уровень сигнала 0..1
-        val base = baseValue
-        level = if (calibrating || base == null) {
-            0f
-        } else if (mode == Mode.DC) {
-            ((abs(smoothMag - base) - 1.5f) / 20f).coerceIn(0f, 1f)
+        if (stage == 2 && s0 == null) {
+            depthMsg = "Сначала сделай замер 1 у стены на максимуме."
+            return
+        }
+
+        if (mode != Mode.AC) {
+            setMode(Mode.AC)
+        }
+
+        if (stage == 1) {
+            s0 = null
+            s1 = null
+            hNear = null
+            hFar = null
         } else {
-            val ratio = acRms / acFloor
-            ((ratio - 1.4f) / 6f).coerceIn(0f, 1f)
+            s1 = null
+            hNear = null
+            hFar = null
         }
 
-        if (!calibrating && level > 0.03f) {
-            beepIfNeeded(nowMs)
-            if (alertEnabled && level > 0.3f) {
-                vibrateOnce(nowMs)
-            }
-        }
-
-        if (nowMs - lastUiMs >= 100) {
-            lastUiMs = nowMs
-            refreshUi()
-        }
+        measureStage = stage
+        measureStartMs = SystemClock.elapsedRealtime()
+        measureUntilMs = measureStartMs + 2000
+        measureSum = 0.0
+        measureCount = 0
     }
 
-    private fun refreshUi() {
-
-        magnitudeText.text =
-            String.format(Locale.US, "%.1f µT", smoothMag)
-
-        levelBar.progress = (level * 100f).toInt()
-
-        val base = baseValue
-
-        if (calibrating) {
-            deltaText.text = "Калибровка..."
-            statusText.text =
-                "Держи телефон неподвижно вдали от металла." + notice
-        } else if (base == null) {
-            deltaText.text = "Нет калибровки"
-            statusText.text = "Нажми «Перекалибровать»."
-        } else if (mode == Mode.DC) {
-            val delta = smoothMag - base
-            deltaText.text =
-                String.format(Locale.US, "Отклонение от базы: %.1f µT", delta)
-
-            statusText.text = when {
-                level > 0.6f ->
-                    "Сильное изменение поля: металл или магнит рядом."
-                level > 0.25f ->
-                    "Заметное изменение. Повтори проход."
-                level > 0.03f ->
-                    "Небольшое изменение поля."
-                else ->
-                    "Аномалии не видно."
-            }
-
-            addHistory(String.format(Locale.US, "%.1f µT", smoothMag))
+    private fun finishMeasure() {
+        val avg = if (measureCount > 0) {
+            (measureSum / measureCount).toFloat()
         } else {
-            val ratio = acRms / acFloor
-            deltaText.text =
-                String.format(
-                    Locale.US,
-                    "Переменное поле: %.3f µT (x%.1f к фону)",
-                    acRms, ratio
-                )
-
-            statusText.text = when {
-                level > 0.6f ->
-                    "Сильное переменное поле: возможно, рядом провод под током."
-                level > 0.25f ->
-                    "Заметное переменное поле. Проведи медленно поперёк."
-                level > 0.03f ->
-                    "Слабое переменное поле."
-                else ->
-                    "Переменного поля не видно. Включи нагрузку на этой линии."
-            }
-
-            addHistory(String.format(Locale.US, "%.3f µT (x%.1f)", acRms, ratio))
+            0.0001f
         }
 
-        sensorInfoText.text =
-            infoBase + "\n" +
-            String.format(Locale.US, "Частота опроса: ~%.0f Гц", rateHz)
-    }
-
-    private fun addHistory(value: String) {
-        history.addLast(value)
-        while (history.size > 15) {
-            history.removeFirst()
+        if (measureStage == 1) {
+            s0 = avg
+            s1 = null
+        } else {
+            s1 = avg
         }
-        historyText.text = history.reversed().joinToString("\n")
+
+        measureStage = 0
+        recomputeDepth()
     }
 
-    private fun beepIfNeeded(nowMs: Long) {
+    private fun recomputeDepth() {
+        hNear = null
+        hFar = null
 
-        if (!soundEnabled) {
+        val a = s0
+        val b = s1
+
+        if (a == null) {
+            depthMsg =
+                "Сделай замер 1: прижми телефон к стене над максимумом сигнала."
             return
         }
 
-        val interval = (800f - 550f * level).toLong()
-
-        if (nowMs - lastBeepMs < interval) {
+        if (b == null) {
+            depthMsg =
+                "Замер 1 готов. Теперь замер 2: отодвинь телефон от стены на $offsetCm см."
             return
         }
 
-        lastBeepMs = nowMs
-        muteAcUntilMs = nowMs + 100
-
-        try {
-            val tone = if (level > 0.6f) {
-                ToneGenerator.TONE_PROP_BEEP2
-            } else {
-                ToneGenerator.TONE_PROP_BEEP
-            }
-            toneGen?.startTone(tone, 60)
-        } catch (e: Exception) {
-            // звук недоступен
-        }
-    }
-
-    private fun vibrateOnce(nowMs: Long) {
-
-        if (nowMs - lastAlertMs < 1200) {
+        if (a < acFloor) {
+            depthMsg =
+                "Сигнал провода слабый. Включи нагрузку мощнее и повтори замер 1."
             return
         }
 
-        lastAlertMs = nowMs
-        muteAcUntilMs = nowMs + 250
+        if (b > a * 0.95f) {
+            depthMsg =
+                "Сигнал не упал при отодвигании: это не похоже на провод. Повтори оба замера."
+            return
+        }
 
-        try {
-            val vibrator =
-                getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        val d = offsetCm.toFloat()
+        val bb = if (b < 0.0001f) 0.0001f else b
+        val ratio = a / bb
 
-            if (Build.VERSION.SDK_INT >= 26) {
-                vibrator.vibrate(
-                    VibrationEffect.createOneShot(
-                        100,
-                        VibrationEffect.DEFAULT_AMPLITUDE
-                    )
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                vibrator.vibrate(100)
-            }
-        } catch (e: Exception) {
-            // вибрация недоступна
+        hNear = d / (ratio - 1f)
+        hFar = d / (sqrt(ratio) - 1f)
+        depthMsg = "Готово."
+    }
+
+    private fun fmtCm(v: Double): String {
+        return if (v > 100.0) {
+            ">100"
+        } else {
+            String.format(Locale.US, "%.0f", v)
         }
     }
 
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+    private fun updateDepthUi() {
 
-        if (accuracy == SensorManager.SENSOR_STATUS_UNRELIABLE) {
-            notice = "\nНизкая точность датчика. Удали телефон от магнитов."
-        }
-    }
-
-    private fun label(
-        value: String,
-        size: Int,
-        bold: Boolean,
-        color: Int
-    ): TextView {
-        val tv = TextView(this)
-        tv.text = value
-        tv.textSize = size.toFloat()
-        tv.setTextColor(color)
-
-        if (bold) {
-            tv.setTypeface(tv.typeface, Typeface.BOLD)
+        if (measureStage != 0) {
+            depthText.text = "Замер..."
+            depthHint.text = "Держи телефон неподвижно 2 секунды."
+            return
         }
 
-        tv.setPadding(0, dp(5), 0, dp(5))
-        return tv
-    }
-
-    private fun gap(height: Int): View {
-        val v = View(this)
-        v.layoutParams = LinearLayout.LayoutParams(1, dp(height))
-        return v
-    }
-
-    private fun dp(value: Int) =
-        (value * resources.displayMetrics.density).toInt()
-}
+        val near = hNear
+        val far = hFar
+   
