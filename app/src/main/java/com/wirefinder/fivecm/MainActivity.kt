@@ -11,15 +11,22 @@ import android.os.Bundle
 import android.os.SystemClock
 import android.view.WindowManager
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.sqrt
 
 class MainActivity : Activity(), SensorEventListener {
 
     private lateinit var sensorManager: SensorManager
     private var magneticSensor: Sensor? = null
+    private var gyroSensor: Sensor? = null
+    private var linSensor: Sensor? = null
+    private var accSensor: Sensor? = null
+    private var rotSensor: Sensor? = null
     private lateinit var ui: Ui
 
     private val engine = Engine()
     private val beeper = Beeper()
+    private val rotBuf = FloatArray(9)
 
     private val sensNames = arrayOf("обычная", "высокая", "максимальная")
 
@@ -38,6 +45,14 @@ class MainActivity : Activity(), SensorEventListener {
 
         magneticSensor =
             sensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        gyroSensor =
+            sensorManager.getDefaultSensor(Sensor.TYPE_GYROSCOPE)
+        linSensor =
+            sensorManager.getDefaultSensor(Sensor.TYPE_LINEAR_ACCELERATION)
+        accSensor =
+            sensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        rotSensor =
+            sensorManager.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR)
 
         ui = Ui(this)
         setContentView(ui.build())
@@ -64,7 +79,7 @@ class MainActivity : Activity(), SensorEventListener {
         ui.sensButton.text = "Чувствительность: " + sensNames[engine.sens]
 
         ui.zeroButton.setOnClickListener {
-            engine.zero(SystemClock.elapsedRealtime())
+            engine.zero()
         }
 
         ui.sensButton.setOnClickListener {
@@ -95,6 +110,23 @@ class MainActivity : Activity(), SensorEventListener {
         magneticSensor?.let {
             sensorManager.registerListener(this, it, 5000)
         }
+
+        gyroSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        }
+
+        val lin = linSensor
+        if (lin != null) {
+            sensorManager.registerListener(this, lin, SensorManager.SENSOR_DELAY_GAME)
+        } else {
+            accSensor?.let {
+                sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+            }
+        }
+
+        rotSensor?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_GAME)
+        }
     }
 
     override fun onPause() {
@@ -109,11 +141,36 @@ class MainActivity : Activity(), SensorEventListener {
 
     override fun onSensorChanged(event: SensorEvent) {
 
-        if (event.sensor.type != Sensor.TYPE_MAGNETIC_FIELD) {
-            return
-        }
-
         val nowMs = SystemClock.elapsedRealtime()
+        val v = event.values
+
+        when (event.sensor.type) {
+            Sensor.TYPE_MAGNETIC_FIELD -> onMagnetic(event, nowMs)
+
+            Sensor.TYPE_GYROSCOPE -> {
+                val g = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+                engine.onGyro(g, nowMs)
+            }
+
+            Sensor.TYPE_LINEAR_ACCELERATION -> {
+                val a = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+                engine.onLinear(a, nowMs)
+            }
+
+            Sensor.TYPE_ACCELEROMETER -> {
+                val a = sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2])
+                engine.onLinear(abs(a - 9.81f), nowMs)
+            }
+
+            Sensor.TYPE_GAME_ROTATION_VECTOR -> {
+                SensorManager.getRotationMatrixFromVector(rotBuf, v)
+                engine.onRotation(rotBuf, nowMs)
+            }
+        }
+    }
+
+    private fun onMagnetic(event: SensorEvent, nowMs: Long) {
+
         val e = engine
 
         e.onSample(
@@ -137,7 +194,7 @@ class MainActivity : Activity(), SensorEventListener {
 
         val e = engine
 
-        if (!soundEnabled || e.calibrating) {
+        if (!soundEnabled || e.calibrating || e.shaking) {
             return
         }
 
@@ -164,7 +221,7 @@ class MainActivity : Activity(), SensorEventListener {
 
         val e = engine
 
-        ui.lampWait.set(e.calibrating)
+        ui.lampWait.set(e.calibrating || e.shaking)
         ui.lampClean.set(e.cleanOn)
         ui.lampMetal.set(e.metalOn)
         ui.lampWire.set(e.wireOn)
@@ -180,20 +237,26 @@ class MainActivity : Activity(), SensorEventListener {
         } else {
             String.format(
                 Locale.US,
-                "ПРОВОД 50 Гц: %.3f µT, x%.1f над шумом",
-                e.mains.amp, e.mains.ratio
+                "ПРОВОД 50 Гц: x%.1f к фону",
+                e.wireRel
             )
         }
 
-        ui.metalLabel.text =
-            String.format(Locale.US, "МЕТАЛЛ: отклонение %.1f µT", e.metalDev)
+        ui.metalLabel.text = String.format(
+            Locale.US,
+            "МЕТАЛЛ: отклонение %.1f µT (порог %.1f)",
+            e.metalDev, e.metalThr
+        )
 
         ui.hintText.text = e.hint
 
+        val rotText = if (e.usingRot) "да" else "нет"
+        val moveText = if (e.shaking) "ТРЯСКА" else "спокойно"
+
         var info = String.format(
             Locale.US,
-            "Частота опроса датчика: %.0f Гц. 50 Гц виден как %.0f Гц.",
-            e.rateHz, e.mains.effHz
+            "Опрос %.0f Гц. Поворот учитывается: %s. Движение: %s.\nПровод: %.3f µT, фон %.3f µT, шум %.3f µT.",
+            e.rateHz, rotText, moveText, e.wireAmp, e.wireBase, e.wireNoise
         )
         if (e.rateHz in 1f..89f) {
             info += "\nДатчик отдаёт мало отсчётов: поиск провода может работать плохо."
