@@ -8,7 +8,7 @@ class Engine {
 
     val mains = Mains()
 
-    var sens = 0
+    var sens = 1
     var smoothMag = 0f
     var slowBase = 0f
     var metalDev = 0f
@@ -19,9 +19,16 @@ class Engine {
     var muteUntilMs = 0L
     var hint = ""
 
-    private val thrArr = floatArrayOf(1.8f, 1.4f, 1.2f)
-    private val gateArr = floatArrayOf(0.8f, 0.5f, 0.3f)
-    private val fullArr = floatArrayOf(8f, 4f, 2f)
+    var wireOn = false
+    var metalOn = false
+    var overOn = false
+    var cleanOn = false
+
+    private val metalOnThr = floatArrayOf(1.5f, 0.8f, 0.45f)
+    private val metalOffThr = floatArrayOf(0.9f, 0.5f, 0.3f)
+    private val metalFull = floatArrayOf(10f, 5f, 3f)
+    private val wireOnThr = floatArrayOf(2.6f, 2.2f, 1.9f)
+    private val wireOffThr = floatArrayOf(1.6f, 1.4f, 1.3f)
 
     private var started = false
     private var warmUntilMs = 0L
@@ -29,11 +36,14 @@ class Engine {
     private var wasMuted = false
     private var lastMainsMs = 0L
 
-    private var peakVal = 0f
-    private var peakTimeMs = 0L
+    private var wireCandSince = 0L
+    private var wireLastHigh = 0L
+    private var metalCandSince = 0L
+    private var metalLastHigh = 0L
+    private var metalOnSince = 0L
+    private var overUntilMs = 0L
+    private var hintMs = 0L
     private var prevCombined = 0f
-    private var lastTrendMs = 0L
-    private var trend = 0
 
     fun restart() {
         started = false
@@ -49,21 +59,15 @@ class Engine {
         mains.clear()
         wireLevel = 0f
         metalLevel = 0f
-        peakVal = 0f
+        wireOn = false
+        metalOn = false
+        overOn = false
+        cleanOn = false
+        wireCandSince = 0L
+        metalCandSince = 0L
     }
 
     fun onSample(x: Float, y: Float, z: Float, tsNs: Long, nowMs: Long) {
-
-        if (nowMs < muteUntilMs) {
-            wasMuted = true
-            lastTsNs = 0L
-            return
-        }
-
-        if (wasMuted) {
-            wasMuted = false
-            mains.clear()
-        }
 
         var dt = 0.005f
         var dtValid = false
@@ -93,18 +97,33 @@ class Engine {
             slowBase = mag
         }
 
-        smoothMag += (mag - smoothMag) * (dt / (0.08f + dt))
+        smoothMag += (mag - smoothMag) * (dt / (0.06f + dt))
 
-        val tau = if (nowMs < warmUntilMs) 0.5f else 4f
+        val tau = when {
+            nowMs < warmUntilMs -> 0.5f
+            !metalOn -> 12f
+            nowMs - metalOnSince > 12000 -> 5f
+            else -> 60f
+        }
         slowBase += (smoothMag - slowBase) * (dt / (tau + dt))
 
         calibrating = nowMs < warmUntilMs
 
-        mains.push(x, y, z)
+        val muted = nowMs < muteUntilMs
 
-        if (nowMs - lastMainsMs >= 150) {
-            lastMainsMs = nowMs
-            updateWire()
+        if (muted) {
+            wasMuted = true
+        } else {
+            if (wasMuted) {
+                wasMuted = false
+                mains.clear()
+            }
+            mains.push(x, y, z)
+
+            if (nowMs - lastMainsMs >= 150) {
+                lastMainsMs = nowMs
+                updateWire()
+            }
         }
 
         updateMetal()
@@ -125,8 +144,7 @@ class Engine {
             return
         }
 
-        val thr = thrArr[sens]
-        val target = (ln(mains.ratio / thr) / 2.5f).coerceIn(0f, 1f)
+        val target = (ln(mains.ratio / 1.3f) / 2.0f).coerceIn(0f, 1f)
 
         wireLevel = if (target > wireLevel) {
             target
@@ -144,7 +162,8 @@ class Engine {
             return
         }
 
-        val target = ((metalDev - gateArr[sens]) / fullArr[sens]).coerceIn(0f, 1f)
+        val gate = metalOffThr[sens] * 0.5f
+        val target = ((metalDev - gate) / metalFull[sens]).coerceIn(0f, 1f)
 
         metalLevel = if (target > metalLevel) {
             target
@@ -153,49 +172,118 @@ class Engine {
         }
     }
 
-    fun tick(nowMs: Long) {
+    private fun updateMetalLamp(nowMs: Long) {
 
-        val c = if (wireLevel > metalLevel) wireLevel else metalLevel
+        val dev = metalDev
 
-        if (calibrating) {
-            hint = "Держи телефон неподвижно вдали от металла."
-            trend = 0
-            peakVal = 0f
+        if (!metalOn) {
+            if (dev >= metalOnThr[sens]) {
+                if (metalCandSince == 0L) {
+                    metalCandSince = nowMs
+                }
+                if (nowMs - metalCandSince >= 150) {
+                    metalOn = true
+                    metalOnSince = nowMs
+                    metalLastHigh = nowMs
+                }
+            } else {
+                metalCandSince = 0L
+            }
+        } else {
+            if (dev >= metalOffThr[sens]) {
+                metalLastHigh = nowMs
+            } else if (nowMs - metalLastHigh >= 1500) {
+                metalOn = false
+                metalCandSince = 0L
+            }
+        }
+    }
+
+    private fun updateWireLamp(nowMs: Long) {
+
+        if (!mains.valid) {
+            wireOn = false
+            wireCandSince = 0L
             return
         }
 
-        if (c > peakVal || nowMs - peakTimeMs > 4000) {
-            peakVal = c
-            peakTimeMs = nowMs
-        }
+        val r = mains.ratio
 
-        if (nowMs - lastTrendMs >= 500) {
-            val d = c - prevCombined
-            trend = if (d > 0.05f) 1 else if (d < -0.05f) -1 else 0
-            prevCombined = c
-            lastTrendMs = nowMs
+        if (!wireOn) {
+            if (r >= wireOnThr[sens]) {
+                if (wireCandSince == 0L) {
+                    wireCandSince = nowMs
+                }
+                if (nowMs - wireCandSince >= 450) {
+                    wireOn = true
+                    wireLastHigh = nowMs
+                }
+            } else {
+                wireCandSince = 0L
+            }
+        } else {
+            if (r >= wireOffThr[sens]) {
+                wireLastHigh = nowMs
+            } else if (nowMs - wireLastHigh >= 1500) {
+                wireOn = false
+                wireCandSince = 0L
+            }
         }
+    }
 
-        val trendText = when (trend) {
-            1 -> "  ▲ растёт"
-            -1 -> "  ▼ падает"
-            else -> ""
+    private fun updateHint(nowMs: Long) {
+
+        if (nowMs - hintMs < 600) {
+            return
         }
+        hintMs = nowMs
+
+        val cw = if (wireOn) wireLevel else 0f
+        val cm = if (metalOn) metalLevel else 0f
+        val c = if (cw > cm) cw else cm
 
         hint = when {
-            peakVal > 0.4f && c < peakVal * 0.6f && nowMs - peakTimeMs < 3500 ->
-                "Пик пройден. Вернись немного назад."
-            c >= 0.8f ->
+            overOn ->
                 "ПРЯМО НАД ИСТОЧНИКОМ"
-            c >= 0.5f ->
-                "Близко. Ищи максимум." + trendText
-            c >= 0.25f ->
-                "Ближе." + trendText
-            c >= 0.12f ->
-                "Слабый сигнал, далеко." + trendText
+            wireOn || metalOn ->
+                if (c > prevCombined + 0.05f) {
+                    "Сигнал растёт: ты ближе."
+                } else if (c < prevCombined - 0.05f) {
+                    "Сигнал падает: вернись назад."
+                } else {
+                    "Ищи максимум сигнала."
+                }
             else ->
                 "Двигай телефон медленно вдоль стены."
         }
+
+        prevCombined = c
+    }
+
+    fun tick(nowMs: Long) {
+
+        if (calibrating) {
+            wireOn = false
+            metalOn = false
+            overOn = false
+            cleanOn = false
+            wireCandSince = 0L
+            metalCandSince = 0L
+            hint = "Подготовка: держи телефон неподвижно вдали от металла."
+            return
+        }
+
+        updateMetalLamp(nowMs)
+        updateWireLamp(nowMs)
+
+        if ((wireOn && wireLevel >= 0.7f) || (metalOn && metalLevel >= 0.7f)) {
+            overUntilMs = nowMs + 1200
+        }
+
+        overOn = nowMs < overUntilMs
+        cleanOn = !wireOn && !metalOn
+
+        updateHint(nowMs)
     }
 }
 
