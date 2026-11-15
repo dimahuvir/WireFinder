@@ -2,7 +2,6 @@ package com.wirefinder.fivecm
 
 import android.content.Context
 import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -13,8 +12,12 @@ import android.widget.TextView
 
 class Ui(private val ctx: Context) {
 
-    lateinit var cardTitle: TextView
-    lateinit var cardSub: TextView
+    lateinit var lampWait: LampView
+    lateinit var lampClean: LampView
+    lateinit var lampMetal: LampView
+    lateinit var lampWire: LampView
+    lateinit var lampOver: LampView
+
     lateinit var wireLabel: TextView
     lateinit var metalLabel: TextView
     lateinit var hintText: TextView
@@ -27,14 +30,6 @@ class Ui(private val ctx: Context) {
     lateinit var sensButton: Button
     lateinit var soundButton: Button
     lateinit var testButton: Button
-
-    private lateinit var cardBg: GradientDrawable
-
-    fun setCard(title: String, sub: String, color: Int) {
-        cardTitle.text = title
-        cardSub.text = sub
-        cardBg.setColor(color)
-    }
 
     fun build(): View {
 
@@ -58,40 +53,50 @@ class Ui(private val ctx: Context) {
         return root
     }
 
+    private fun addLamp(row: LinearLayout, lamp: LampView) {
+        lamp.layoutParams = LinearLayout.LayoutParams(
+            0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
+        )
+        row.addView(lamp)
+    }
+
     private fun addMain(content: LinearLayout) {
 
         content.addView(label("WIREFINDER 5CM", 18, true, 0xFF14263D.toInt()))
 
-        val card = LinearLayout(ctx)
-        card.orientation = LinearLayout.VERTICAL
-        card.setPadding(dp(16), dp(22), dp(16), dp(22))
-        card.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
+        val row = LinearLayout(ctx)
+        row.orientation = LinearLayout.HORIZONTAL
+        row.layoutParams = LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(92)
         )
 
-        cardBg = GradientDrawable()
-        cardBg.cornerRadius = dp(18).toFloat()
-        cardBg.setColor(0xFF64748B.toInt())
-        card.background = cardBg
+        lampWait = LampView(ctx, "ЖДИ", 0xFF3B82F6.toInt())
+        lampClean = LampView(ctx, "ЧИСТО", 0xFF2FA84F.toInt())
+        lampMetal = LampView(ctx, "МЕТАЛЛ", 0xFFFF8C00.toInt())
+        lampWire = LampView(ctx, "ПРОВОД", 0xFFE02424.toInt())
+        lampOver = LampView(ctx, "НАД ЦЕЛЬЮ", 0xFFF2C200.toInt())
 
-        cardTitle = label("ПОДГОТОВКА", 28, true, 0xFFFFFFFF.toInt())
-        cardTitle.gravity = Gravity.CENTER
-        card.addView(cardTitle)
+        addLamp(row, lampWait)
+        addLamp(row, lampClean)
+        addLamp(row, lampMetal)
+        addLamp(row, lampWire)
+        addLamp(row, lampOver)
 
-        cardSub = label("", 14, false, 0xFFFFFFFF.toInt())
-        cardSub.gravity = Gravity.CENTER
-        card.addView(cardSub)
+        content.addView(row)
+        content.addView(gap(10))
 
-        content.addView(card)
-        content.addView(gap(12))
+        hintText = label("", 18, true, 0xFF14263D.toInt())
+        hintText.gravity = Gravity.CENTER
+        content.addView(hintText)
+
+        content.addView(gap(10))
 
         wireLabel = label("ПРОВОД 50 Гц", 14, true, 0xFF14263D.toInt())
         content.addView(wireLabel)
 
         wireBar = LedBar(ctx)
         wireBar.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(34)
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(30)
         )
         content.addView(wireBar)
 
@@ -102,15 +107,9 @@ class Ui(private val ctx: Context) {
 
         metalBar = LedBar(ctx)
         metalBar.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(34)
+            ViewGroup.LayoutParams.MATCH_PARENT, dp(30)
         )
         content.addView(metalBar)
-
-        content.addView(gap(10))
-
-        hintText = label("", 18, true, 0xFF14263D.toInt())
-        hintText.gravity = Gravity.CENTER
-        content.addView(hintText)
 
         infoText = label("", 12, false, 0xFF536477.toInt())
         content.addView(infoText)
@@ -123,7 +122,7 @@ class Ui(private val ctx: Context) {
         zeroButton = button("Обнулить (на чистом месте)")
         content.addView(zeroButton)
 
-        sensButton = button("Чувствительность: обычная")
+        sensButton = button("Чувствительность: высокая")
         content.addView(sensButton)
 
         soundButton = button("Звук: включён")
@@ -142,11 +141,12 @@ class Ui(private val ctx: Context) {
         content.addView(
             label(
                 "1. Для поиска провода включи на этой линии мощную нагрузку: чайник, обогреватель, фен.\n" +
-                "2. Дай прибору 2 секунды подготовки, держа телефон неподвижно вдали от металла.\n" +
+                "2. Дай прибору 2 секунды подготовки (горит ЖДИ), держа телефон неподвижно вдали от металла.\n" +
                 "3. Прижми телефон к стене и веди медленно, не вращая. Датчик обычно в верхней части телефона.\n" +
-                "4. Следи за плашкой и шкалами. Когда сигнал растёт, ты приближаешься, а когда выше всего, ты над источником.\n" +
-                "5. Писк раздаётся раз в секунду: динамик мешает измерению, поэтому чаще нельзя.\n" +
-                "6. Если провод не ловится, выбери «Чувствительность: максимальная» и держи телефон вплотную.",
+                "4. Лампа МЕТАЛЛ загорается у коробок, розеток, арматуры. ПРОВОД: когда найдено поле 50 Гц. НАД ЦЕЛЬЮ: сигнал максимальный.\n" +
+                "5. Писк раз в секунду: высокий для провода, низкий для металла. Динамик мешает измерению, поэтому чаще нельзя.\n" +
+                "6. Если слабо, выбери «Чувствительность: максимальная». Она может давать ложные срабатывания.\n" +
+                "7. Если лампа МЕТАЛЛ горит долго на чистом месте, нажми «Обнулить».",
                 13, false, 0xFF536477.toInt()
             )
         )
