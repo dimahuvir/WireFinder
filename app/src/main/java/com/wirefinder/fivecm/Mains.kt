@@ -27,16 +27,17 @@ class Mains {
     fun clear() {
         count = 0
         head = 0
+        valid = false
     }
+
+    fun countReady(): Boolean = count >= 96
 
     fun push(x: Float, y: Float, z: Float) {
         bx[head] = x
         by[head] = y
         bz[head] = z
         head = (head + 1) % cap
-        if (count < cap) {
-            count++
-        }
+        if (count < cap) count++
     }
 
     private fun prepare(n: Int) {
@@ -44,7 +45,6 @@ class Mains {
         var my = 0f
         var mz = 0f
         val start = (head - n + cap) % cap
-
         for (k in 0 until n) {
             val i = (start + k) % cap
             mx += bx[i]
@@ -54,7 +54,6 @@ class Mains {
         mx /= n
         my /= n
         mz /= n
-
         for (k in 0 until n) {
             val i = (start + k) % cap
             val w = 0.5f - 0.5f * cos(2.0 * PI * k / (n - 1)).toFloat()
@@ -69,49 +68,41 @@ class Mains {
         val coeff = 2.0 * cos(w)
         var s1 = 0.0
         var s2 = 0.0
-
         for (i in 0 until n) {
             val s = a[i] + coeff * s1 - s2
             s2 = s1
             s1 = s
         }
-
         return (s1 * s1 + s2 * s2 - coeff * s1 * s2).toFloat()
     }
 
     private fun ampSq(f: Float, n: Int, fs: Float): Float {
-        val p = goertzel(tx, n, f, fs) +
-            goertzel(ty, n, f, fs) +
-            goertzel(tz, n, f, fs)
+        val p = goertzel(tx, n, f, fs) + goertzel(ty, n, f, fs) + goertzel(tz, n, f, fs)
         val v = p * 16f / (n.toFloat() * n.toFloat())
         return if (v < 0f) 0f else v
     }
 
     fun analyze(fs: Float): Boolean {
-
-        var f0 = mainsHz % fs
-        if (f0 > fs / 2f) {
-            f0 = fs - f0
-        }
-        effHz = f0
-        valid = f0 >= 4f
-
-        val minN = (fs * 0.45f).toInt().coerceIn(48, cap)
-        if (count < minN) {
+        if (count < 96) {
+            valid = false
             return false
         }
 
-        if (!valid) {
-            return true
-        }
+        var f0 = mainsHz
+        var measured = f0
+        while (measured >= fs) measured -= fs
+        while (measured < 0f) measured += fs
+        if (measured > fs / 2f) measured = fs - measured
+        effHz = measured
+        valid = fs >= 20f && measured >= 4f && measured <= fs / 2f - 1f
+
+        if (!valid) return true
 
         val want = (fs * 0.8f).toInt().coerceIn(64, cap)
         val n = if (count < want) count else want
-
         prepare(n)
 
-        val sig = ampSq(f0, n, fs)
-
+        val sig = ampSq(f0.coerceAtMost(fs / 2f - 1f), n, fs)
         var sum = 0f
         var k = 0
         for (o in offsets) {
@@ -123,15 +114,10 @@ class Mains {
         }
 
         val nz = if (k > 0) sum / k else 0.00000001f
-
         raw = sqrt(sig)
         noise = sqrt(nz)
-
         val den = if (noise < 0.00001f) 0.00001f else noise
         ratio = raw / den
-
         return true
     }
 }
-
-// конец файла

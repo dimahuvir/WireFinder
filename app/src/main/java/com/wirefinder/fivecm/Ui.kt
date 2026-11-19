@@ -28,18 +28,17 @@ class Ui(private val ctx: Context) {
 
     lateinit var zeroButton: Button
     lateinit var sensButton: Button
+    lateinit var acButton: Button
     lateinit var soundButton: Button
     lateinit var testButton: Button
 
     fun build(): View {
-
         val root = LinearLayout(ctx)
         root.orientation = LinearLayout.VERTICAL
         root.setPadding(dp(16), dp(16), dp(16), dp(16))
         root.setBackgroundColor(0xFFF3F6FA.toInt())
 
         val scroll = ScrollView(ctx)
-
         val content = LinearLayout(ctx)
         content.orientation = LinearLayout.VERTICAL
 
@@ -49,26 +48,15 @@ class Ui(private val ctx: Context) {
 
         scroll.addView(content)
         root.addView(scroll)
-
         return root
     }
 
-    private fun addLamp(row: LinearLayout, lamp: LampView) {
-        lamp.layoutParams = LinearLayout.LayoutParams(
-            0, ViewGroup.LayoutParams.MATCH_PARENT, 1f
-        )
-        row.addView(lamp)
-    }
-
     private fun addMain(content: LinearLayout) {
-
         content.addView(label("WIREFINDER 5CM", 18, true, 0xFF14263D.toInt()))
 
         val row = LinearLayout(ctx)
         row.orientation = LinearLayout.HORIZONTAL
-        row.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(92)
-        )
+        row.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(92))
 
         lampWait = LampView(ctx, "ЖДИ", 0xFF3B82F6.toInt())
         lampClean = LampView(ctx, "ЧИСТО", 0xFF2FA84F.toInt())
@@ -76,97 +64,71 @@ class Ui(private val ctx: Context) {
         lampWire = LampView(ctx, "ПРОВОД", 0xFFE02424.toInt())
         lampOver = LampView(ctx, "НАД ЦЕЛЬЮ", 0xFFF2C200.toInt())
 
-        addLamp(row, lampWait)
-        addLamp(row, lampClean)
-        addLamp(row, lampMetal)
-        addLamp(row, lampWire)
-        addLamp(row, lampOver)
-
+        for (lamp in listOf(lampWait, lampClean, lampMetal, lampWire, lampOver)) {
+            lamp.layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_MATCH_PARENT, 1f)
+            row.addView(lamp)
+        }
         content.addView(row)
         content.addView(gap(10))
 
         hintText = label("", 18, true, 0xFF14263D.toInt())
         hintText.gravity = Gravity.CENTER
         content.addView(hintText)
-
         content.addView(gap(10))
 
         wireLabel = label("ПРОВОД 50 Гц", 14, true, 0xFF14263D.toInt())
         content.addView(wireLabel)
-
         wireBar = LedBar(ctx)
-        wireBar.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(30)
-        )
+        wireBar.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(30))
         content.addView(wireBar)
 
         content.addView(gap(8))
-
         metalLabel = label("МЕТАЛЛ", 14, true, 0xFF14263D.toInt())
         content.addView(metalLabel)
-
         metalBar = LedBar(ctx)
-        metalBar.layoutParams = LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, dp(30)
-        )
+        metalBar.layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(30))
         content.addView(metalBar)
 
         infoText = label("", 12, false, 0xFF536477.toInt())
         content.addView(infoText)
-
         content.addView(gap(8))
     }
 
     private fun addButtons(content: LinearLayout) {
-
-        zeroButton = button("Обнулить (на чистом месте)")
-        content.addView(zeroButton)
-
-        sensButton = button("Чувствительность: высокая")
-        content.addView(sensButton)
-
+        zeroButton = button("Обнулить и откалибровать")
+        sensButton = button("Чувствительность")
+        acButton = button("Сеть: 50 Гц")
         soundButton = button("Звук: включён")
-        content.addView(soundButton)
-
         testButton = button("Тест звука")
-        content.addView(testButton)
 
+        for (b in listOf(zeroButton, sensButton, acButton, soundButton, testButton)) {
+            content.addView(b)
+        }
         content.addView(gap(14))
     }
 
     private fun addInfo(content: LinearLayout) {
-
         content.addView(label("Как пользоваться", 17, true, 0xFF14263D.toInt()))
-
-        content.addView(
-            label(
-                "1. Для поиска провода включи на этой линии мощную нагрузку: чайник, обогреватель, фен.\n" +
-                "2. Дай прибору 2 секунды подготовки (горит ЖДИ), держа телефон неподвижно вдали от металла.\n" +
-                "3. Прижми телефон к стене и веди медленно, не вращая. Датчик обычно в верхней части телефона.\n" +
-                "4. Лампа МЕТАЛЛ загорается у коробок, розеток, арматуры. ПРОВОД: когда найдено поле 50 Гц. НАД ЦЕЛЬЮ: сигнал максимальный.\n" +
-                "5. Писк раз в секунду: высокий для провода, низкий для металла. Динамик мешает измерению, поэтому чаще нельзя.\n" +
-                "6. Если слабо, выбери «Чувствительность: максимальная». Она может давать ложные срабатывания.\n" +
-                "7. Если лампа МЕТАЛЛ горит долго на чистом месте, нажми «Обнулить».",
-                13, false, 0xFF536477.toInt()
-            )
-        )
+        content.addView(label(
+            "1. Сначала нажми «Обнулить» вдали от металла и держи телефон неподвижно 3 секунды.\n" +
+            "2. Для проверки провода включи мощную нагрузку: чайник или обогреватель. Выбери 50 Гц или 60 Гц.\n" +
+            "3. Веди телефон плавно вдоль стены, не вращая его. У датчика обычно верхняя часть корпуса.\n" +
+            "4. ЛАМПА МЕТАЛЛ реагирует на локальное отклонение магнитного поля. Это не означает определённый металл.\n" +
+            "5. Алюминий, медь и глубина объекта в сантиметрах встроенным магнитометром надёжно не определяются.",
+            13, false, 0xFF536477.toInt()
+        ))
 
         content.addView(gap(14))
-
         content.addView(label("Информация о датчике", 17, true, 0xFF14263D.toInt()))
         sensorInfoText = label("Проверка...", 13, false, 0xFF536477.toInt())
         content.addView(sensorInfoText)
 
         content.addView(gap(14))
-
         content.addView(label("ВАЖНО О БЕЗОПАСНОСТИ", 16, true, 0xFF9A3412.toInt()))
-
-        content.addView(
-            label(
-                "Это экспериментальный магнитометр, а не детектор скрытой проводки. Расстояние до провода он не измеряет, только показывает, ближе ты или дальше. В двухжильном кабеле токи идут навстречу друг другу, и поле почти гасится, поэтому провод может быть не виден. Арматура, трубы, магниты и динамики дают похожие сигналы. Не вскрывай провода и не сверли стену по показаниям приложения. Для проверки используй профессиональный детектор.",
-                13, false, 0xFF8A3B24.toInt()
-            )
-        )
+        content.addView(label(
+            "Это экспериментальный анализ встроенного магнитометра, а не профессиональный детектор скрытой проводки. Перед сверлением используй сертифицированный прибор.",
+            13, false, 0xFF8A3B24.toInt()
+        ))
     }
 
     private fun button(text: String): Button {
@@ -176,21 +138,12 @@ class Ui(private val ctx: Context) {
         return b
     }
 
-    private fun label(
-        value: String,
-        size: Int,
-        bold: Boolean,
-        color: Int
-    ): TextView {
+    private fun label(value: String, size: Int, bold: Boolean, color: Int): TextView {
         val tv = TextView(ctx)
         tv.text = value
         tv.textSize = size.toFloat()
         tv.setTextColor(color)
-
-        if (bold) {
-            tv.setTypeface(tv.typeface, Typeface.BOLD)
-        }
-
+        if (bold) tv.setTypeface(tv.typeface, Typeface.BOLD)
         tv.setPadding(0, dp(4), 0, dp(4))
         return tv
     }
@@ -201,9 +154,5 @@ class Ui(private val ctx: Context) {
         return v
     }
 
-    private fun dp(value: Int): Int {
-        return (value * ctx.resources.displayMetrics.density).toInt()
-    }
+    private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
 }
-
-// конец файла
