@@ -41,6 +41,7 @@ class Engine {
     private var started = false
     private var warmUntilMs = 0L
     private var lastTsNs = 0L
+    private var lastWireAnalyzeMs = 0L
 
     private var smX = 0f
     private var smY = 0f
@@ -68,12 +69,20 @@ class Engine {
         mains.clear()
         wireCandSince = 0L
         metalCandSince = 0L
+        lastWireAnalyzeMs = 0L
+        calibrating = true
+        shaking = false
+        usingRot = false
         wireOn = false
         metalOn = false
         overOn = false
         cleanOn = false
         wireLevel = 0f
         metalLevel = 0f
+        wireAmp = 0f
+        wireBase = 0f
+        wireRel = 1f
+        wireNoise = 0f
     }
 
     fun zero() = restart()
@@ -82,6 +91,7 @@ class Engine {
         if (hz != mains.mainsHz) {
             mains.mainsHz = hz
             wireBaseReady = false
+            lastWireAnalyzeMs = 0L
             mains.clear()
         }
     }
@@ -178,7 +188,12 @@ class Engine {
         metalLevel = if (target > metalLevel) target else metalLevel * 0.995f
 
         if (nowMs >= muteUntilMs) mains.push(vx, vy, vz)
-        if (mains.countReady() && nowMs % 150 < 15) updateWire(shakeNow = shaking)
+        // Do not use nowMs % period here: sensor callbacks can skip that narrow
+        // window, which previously made wire detection intermittently stop.
+        if (mains.countReady() && nowMs - lastWireAnalyzeMs >= 150L) {
+            lastWireAnalyzeMs = nowMs
+            updateWire(shakeNow = shaking)
+        }
     }
 
     private fun updateWire(shakeNow: Boolean) {
